@@ -1,0 +1,106 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #f5f6f8;
+  --card: #ffffff;
+  --fg: #12141a;
+  --muted: #646b78;
+  --border: #e3e6eb;
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --primary-fg: #ffffff;
+  --primary-soft: #e8f1ff;
+  --success: #157f3c;
+  --success-soft: #e3f6ea;
+  --warning: #a35c00;
+  --warning-soft: #fff3dc;
+  --danger: #c02626;
+  --danger-soft: #fdeaea;
+  --info: #0e7490;
+  --info-soft: #e0f5f9;
+  --neutral-soft: #eef0f3;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d0f14;
+    --card: #161921;
+    --fg: #e8eaee;
+    --muted: #9aa1ad;
+    --border: #2a2f3a;
+    --primary: #60a5fa;
+    --primary-hover: #93c5fd;
+    --primary-fg: #0d0f14;
+    --primary-soft: #16264a;
+    --success: #5fd38a;
+    --success-soft: #12301f;
+    --warning: #f2b552;
+    --warning-soft: #33270f;
+    --danger: #f27878;
+    --danger-soft: #3a1717;
+    --info: #67d4e8;
+    --info-soft: #12313a;
+    --neutral-soft: #222631;
+    color-scheme: dark;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-card: var(--card);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-border: var(--border);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-fg: var(--primary-fg);
+  --color-primary-soft: var(--primary-soft);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-neutral-soft: var(--neutral-soft);
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+@layer base {
+  *,
+  ::before,
+  ::after {
+    border-color: var(--border);
+  }
+  html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-sans);
+    min-height: 100dvh;
+  }
+  input,
+  textarea,
+  select {
+    font-size: 16px; /* stops iOS zooming into fields */
+  }
+  @media (min-width: 768px) {
+    input,
+    textarea,
+    select {
+      font-size: 14px;
+    }
+  }
+}
+
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.safe-top {
+  padding-top: env(safe-area-inset-top);
+}

@@ -1,0 +1,30 @@
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+
+# secrets and runtime data
+.env
+.env.local
+storage/
+
+npm-debug.log*
+.DS_Store
+
+# database backups (scripts/backup.sh)
+backups/
+
+# server settings with secrets (deploy/server.env)
+deploy/*.env
+
+# local test kit (tools/test-env)
+tools/test-env/node_modules/
+tools/test-env/pgdata/
+tools/test-env/outbox/
+tools/test-env/storage/
+tools/test-env/test.env
+tools/test-env/*.log
+
+# Claude Code app settings for this laptop
+.claude/

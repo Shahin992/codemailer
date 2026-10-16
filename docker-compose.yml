@@ -1,0 +1,103 @@
+# docker compose up -d --build
+#   db       PostgreSQL (data kept in the "pgdata" volume)
+#   migrate  creates/updates tables before the app starts, then exits
+#   app      the Next.js app            → http://localhost:${APP_PORT:-3000} (this machine only)
+#   cron     calls the send job every minute and the inbox job every 5 minutes
+#   adminer  database browser           → http://localhost:${ADMINER_PORT:-8080} (this machine only)
+#   caddy    HTTPS for ${APP_DOMAIN} on ports 80/443; only with COMPOSE_PROFILES=https (on the server)
+
+x-database-url: &database-url
+  DATABASE_URL: postgres://${POSTGRES_USER:-email}:${POSTGRES_PASSWORD:-email}@db:5432/${POSTGRES_DB:-email_sender}
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-email}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-email}
+      POSTGRES_DB: ${POSTGRES_DB:-email_sender}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  migrate:
+    build:
+      context: .
+      target: migrator
+    environment:
+      <<: *database-url
+    # Runs as your user so new migration files in ./drizzle belong to you.
+    user: "${UID:-1000}:${GID:-1000}"
+    volumes:
+      - ./drizzle:/app/drizzle
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  app:
+    build:
+      context: .
+      target: runner
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      <<: *database-url
+    # Only this machine reaches port 3000 directly; the public comes in through Caddy (HTTPS).
+    ports:
+      - "127.0.0.1:${APP_PORT:-3000}:3000"
+    volumes:
+      - storage:/app/storage
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  cron:
+    build:
+      context: .
+      target: runner
+    restart: unless-stopped
+    command: ["node", "scripts/cron.mjs"]
+    env_file: .env
+    environment:
+      CRON_TARGET: http://app:3000
+    depends_on:
+      - app
+
+  adminer:
+    image: adminer:5
+    restart: unless-stopped
+    environment:
+      ADMINER_DEFAULT_SERVER: db
+    ports:
+      - "127.0.0.1:${ADMINER_PORT:-8080}:8080"
+    depends_on:
+      - db
+
+  caddy:
+    image: caddy:2
+    profiles: ["https"]
+    restart: unless-stopped
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:-localhost} # set APP_DOMAIN in .env on the server
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
+volumes:
+  pgdata:
+  storage:
+  caddy_data:
+  caddy_config:

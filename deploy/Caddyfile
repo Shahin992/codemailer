@@ -1,0 +1,12 @@
+# HTTPS in front of ColdMailer. Caddy gets and renews a free Let's Encrypt certificate
+# for APP_DOMAIN automatically, as long as the domain points at this server and ports 80/443 are open.
+{$APP_DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+
+	reverse_proxy app:3000
+}

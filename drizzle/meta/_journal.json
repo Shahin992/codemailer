@@ -1,0 +1,62 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1792085550107,
+      "tag": "0000_init",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1792086198491,
+      "tag": "0001_schema_20261015174317",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792087352348,
+      "tag": "0002_schema_20261015180231",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1792087480952,
+      "tag": "0003_backfill_mailbox_security",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792090452522,
+      "tag": "0004_schema_20261015185411",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792092411212,
+      "tag": "0005_schema_20261015192650",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792094257779,
+      "tag": "0006_schema_20261015195736",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792124760712,
+      "tag": "0007_scheduled_send_times",
+      "breakpoints": true
+    }
+  ]
+}

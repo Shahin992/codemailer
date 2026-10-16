@@ -1,0 +1,2 @@
+ALTER TABLE "campaigns" ADD COLUMN "style" text DEFAULT 'personal' NOT NULL;--> statement-breakpoint
+ALTER TABLE "settings" ADD COLUMN "opt_out_line" text DEFAULT 'If this isn''t relevant to you, just reply "no" and I won''t email you again.' NOT NULL;
