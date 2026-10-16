@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { eq } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, or } from "drizzle-orm";
 import { ArrowLeft, Download, Paperclip } from "lucide-react";
 import sanitizeHtml from "sanitize-html";
 import { markReplyUnread } from "@/app/actions/replies";
@@ -47,7 +47,22 @@ export default async function ReplyPage({ params }: { params: Promise<{ id: stri
     .where(eq(replies.id, id));
   if (!row) notFound();
   const { reply } = row;
-  if (!reply.readAt) await db.update(replies).set({ readAt: new Date() }).where(eq(replies.id, id));
+
+  // Everything this person wrote back about the same email, oldest first, so a second or third reply is never hidden.
+  const conversation = await db
+    .select({ id: replies.id, receivedAt: replies.receivedAt, replyText: replies.replyText, bodyText: replies.bodyText, readAt: replies.readAt, attachments: replies.attachments })
+    .from(replies)
+    .where(
+      and(
+        reply.messageId ? eq(replies.messageId, reply.messageId) : and(isNull(replies.messageId), eq(replies.fromEmail, reply.fromEmail), eq(replies.senderId, reply.senderId)),
+        or(eq(replies.isAutoReply, false), eq(replies.id, reply.id)),
+      ),
+    )
+    .orderBy(asc(replies.receivedAt), asc(replies.id));
+  // All of them are shown in full on this page, so they all count as read.
+  const unreadIds = conversation.filter((r) => !r.readAt).map((r) => r.id);
+  if (unreadIds.length) await db.update(replies).set({ readAt: new Date() }).where(inArray(replies.id, unreadIds));
+  const thread = conversation.length > 1 ? conversation : []; // only shown when there is more than one
 
   return (
     <div className="mx-auto max-w-3xl space-y-4">
@@ -113,6 +128,42 @@ export default async function ReplyPage({ params }: { params: Promise<{ id: stri
           </form>
         </div>
       </Card>
+
+      {thread.length > 0 && (
+        <Card>
+          <CardHeader
+            title={`${thread.length} replies in this conversation`}
+            description={`Everything ${reply.fromName || reply.fromEmail} wrote back about this email, oldest first.`}
+          />
+          <ol className="divide-y">
+            {thread.map((r, i) => {
+              const current = r.id === reply.id;
+              const text = (
+                <>
+                  <span className="flex flex-wrap items-center gap-2 text-xs text-muted">
+                    <span className="font-medium text-fg">Reply {i + 1}</span>
+                    <Time value={r.receivedAt} />
+                    {current && <Badge tone="primary">Shown above</Badge>}
+                    {r.attachments.length > 0 && <Paperclip className="size-3.5" aria-label="Has attachments" />}
+                  </span>
+                  <span className="mt-1 block text-sm leading-relaxed break-words whitespace-pre-wrap">{r.replyText || r.bodyText || "(empty)"}</span>
+                </>
+              );
+              return (
+                <li key={r.id}>
+                  {current ? (
+                    <div className="border-l-2 border-primary bg-primary-soft/40 px-4 py-3 md:px-5">{text}</div>
+                  ) : (
+                    <Link href={`/replies/${r.id}`} className="block px-4 py-3 transition-colors hover:bg-neutral-soft md:px-5">
+                      {text}
+                    </Link>
+                  )}
+                </li>
+              );
+            })}
+          </ol>
+        </Card>
+      )}
 
       {row.campaignId && (
         <Card>

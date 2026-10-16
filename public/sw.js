@@ -32,13 +32,23 @@ self.addEventListener("push", (event) => {
   }
   const title = data.title || "New reply";
   event.waitUntil(
-    self.registration.showNotification(title, {
-      body: data.body || "",
-      icon: "/icons/icon-192.png",
-      badge: "/icons/badge-96.png",
-      tag: data.tag,
-      data: { url: data.url || "/replies" },
-    }),
+    (async () => {
+      await self.registration.showNotification(title, {
+        body: data.body || "",
+        icon: "/icons/icon-192.png",
+        badge: "/icons/badge-96.png",
+        tag: data.tag,
+        renotify: Boolean(data.tag),
+        // Stay on screen until clicked or closed, instead of disappearing into the notification list after a few seconds.
+        requireInteraction: true,
+        timestamp: Date.now(),
+        vibrate: [120, 60, 120],
+        data: { url: data.url || "/replies" },
+      });
+      // Open ColdMailer pages refresh their reply lists and unread count.
+      const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      for (const client of windows) client.postMessage({ type: "push", title, body: data.body || "", url: data.url || "/replies" });
+    })(),
   );
 });
 
@@ -46,14 +56,13 @@ self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const url = new URL(event.notification.data?.url || "/replies", self.location.origin).href;
   event.waitUntil(
-    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
-      for (const client of clients) {
-        if (client.url.startsWith(self.location.origin) && "focus" in client) {
-          client.navigate(url);
-          return client.focus();
-        }
-      }
-      return self.clients.openWindow(url);
-    }),
+    (async () => {
+      const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      const client = windows.find((c) => c.url.startsWith(self.location.origin));
+      if (!client) return self.clients.openWindow(url);
+      await client.focus();
+      // navigate() only works on pages this worker controls; others are asked to open the link themselves.
+      await client.navigate(url).catch(() => client.postMessage({ type: "open", url }));
+    })(),
   );
 });

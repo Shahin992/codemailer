@@ -6,6 +6,7 @@ import { describeMailError, isAuthError } from "@/lib/mail/errors";
 import { processInbound, type InboundResult } from "@/lib/mail/inbound";
 
 const MAX_PER_FOLDER = 200;
+const INBOX_ERROR = "Inbox check failed:";
 
 type Counts = Record<InboundResult, number>;
 
@@ -51,7 +52,12 @@ async function checkMailbox(sender: Sender, counts: Counts) {
 
   await db
     .update(senders)
-    .set({ imapState: state, lastCheckedAt: new Date() })
+    .set({
+      imapState: state,
+      lastCheckedAt: new Date(),
+      // A passing check clears an earlier inbox error (e.g. a brief DNS or network failure); sending errors stay.
+      ...(sender.lastError?.startsWith(INBOX_ERROR) ? { lastError: null, lastErrorAt: null } : {}),
+    })
     .where(eq(senders.id, sender.id));
 }
 
@@ -65,7 +71,7 @@ export async function runInboxJob(): Promise<string> {
       await checkMailbox(sender, counts);
     } catch (err) {
       errors++;
-      const message = `Inbox check failed: ${describeMailError(err)}`;
+      const message = `${INBOX_ERROR} ${describeMailError(err)}`;
       await db
         .update(senders)
         .set({
@@ -78,5 +84,5 @@ export async function runInboxJob(): Promise<string> {
     }
   }
 
-  return `checked ${list.length} mailboxes: ${counts.reply} replies, ${counts.auto_reply} auto-replies, ${counts.bounce} bounces, ${counts.unsubscribe} unsubscribes, ${errors} errors`;
+  return `checked ${list.length} mailboxes: ${counts.reply} replies, ${counts.auto_reply} auto-replies, ${counts.bounce} bounces, ${counts.unsubscribe} unsubscribes, ${counts.ignored} other emails, ${counts.duplicate} already saved, ${errors} errors`;
 }

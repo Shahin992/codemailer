@@ -1,6 +1,6 @@
 # ColdMailer: handoff notes
 
-Last updated: Oct 16, 2026 (set send times + countdowns, AWS EC2 guide, Docker build re-check). Read this first in the next session.
+Last updated: Oct 16, 2026 (reply notifications and multiple replies per person; before that set send times, AWS EC2 guide, Docker build re-check). Read this first in the next session.
 
 ## Contents
 
@@ -39,12 +39,12 @@ Last updated: Oct 16, 2026 (set send times + countdowns, AWS EC2 guide, Docker b
 | Email style | **Personal** (default): plain text, no unsubscribe header or link, an opt-out line ("reply 'no'…"), no tracking. Aims for Gmail Primary. **Newsletter**: HTML, unsubscribe link plus one-click header, optional open/click tracking. |
 | Sending | Mailboxes take turns. Each sends at most its daily limit per rolling 24 hours, spread over the window (±15% variation). The rest waits for the next day automatically. The same person always gets the same mailbox. Retries for temporary errors; auth errors pause the mailbox; "limit exceeded" rests it for 24 hours (`rest_until`). **Set times** (`messages.scheduled_at`) go out at that time, inside or outside the window, still within pauses, rests and daily limits. Every waiting email has a live countdown and **Set/Change time** (new time, Send now, back to Automatic). |
 | Tracking | Sent, bounced (SMTP rejection and bounce notices, matched by Message-ID), replied, failed. Open/click only in Newsletter style. "Delivered" is not reported by ordinary mailboxes. Every queued email shows an **expected send time** or why it's waiting. |
-| Replies | Inbox job every 5 minutes, read-only (unread stays unread). Matches replies by `In-Reply-To`/`References`, else by address. Strips quoted history, saves attachments, flags auto-replies. **"No thanks / stop / unsubscribe / remove me" replies** put the person on the do-not-send list. Emailed "unsubscribe" requests do too. |
+| Replies | Inbox job every 5 minutes, read-only (unread stays unread). Matches replies by `In-Reply-To`/`References`, else by address. Strips quoted history, saves attachments, flags auto-replies. **"No thanks / stop / unsubscribe / remove me" replies** put the person on the do-not-send list. Emailed "unsubscribe" requests do too. **Several replies from one person** to the same email are all kept: the reply page shows the whole conversation, the list tags them "reply 2 of 3", and the campaign and recipient pages show every one. |
 | Do-not-send | Bounces, unsubscribes and manual entries. Skipped in every campaign. |
 | Recipients | Paged list with search and status filter. Per-person timeline: which mailbox, when, what happened. |
 | Accounts | Register and login with JWT. The app always opens on the sign-in page; registering never signs you in, it returns to sign-in with a notice. The first account is admin (restricted to `ADMIN_EMAIL` if set); later sign-ups need admin approval. Team page, password change, rate-limited logins (10 failures → 15-minute lock). |
 | API | `/api/v1/*` with Bearer JWT (`POST /api/v1/auth/token`, or Settings → Create API token). Optional shared `API_KEY`. Paged lists return a `pagination` block. |
-| PWA | Installable app with an offline page. **Push notification for every reply.** Fully responsive: sidebar on desktop, bottom tabs on phones. |
+| PWA | Installable app with an offline page. **Push notification for every reply**: sent with high urgency (no waiting for a sleeping phone) and stays on screen until clicked. An open ColdMailer tab refreshes its reply list and unread count and shows a banner when one arrives, and refreshes again when the tab is shown. On a computer, pushes arrive only while the browser is running. Fully responsive: sidebar on desktop, bottom tabs on phones. |
 | Pagination | Every growing list is paged at the database (LIMIT/OFFSET with a count), with search and filters in the URL. |
 | Branding | Name **ColdMailer** (`lib/brand.ts`), icy-blue logo in `public/brand/`. The name is kept off recipient-facing pages (the unsubscribe page shows only the sender). |
 
@@ -182,6 +182,8 @@ Pages were checked in the browser pane at desktop and phone width.
 - **Tracking and unsubscribe:** open/click with bot filtering; one-click unsubscribe; recipient page without app name.
 - **Lists and views:** pagination on all lists (with 3,000+ rows, about 340 ms per page), API pagination, expected send times, phone layouts.
 - **Migrations and Docker:** automatic migrations (generate and apply), the custom backfill migration; Docker build and run on this laptop.
+- **Multiple replies (Oct 16, test kit):** four replies from one person (to our email, to his own reply, and a new email with no thread headers) are all recorded and shown on the reply page, the Replies list, the campaign page and the recipient timeline. The in-app banner was checked; real OS push was not (the browser pane can't run service workers).
+- **Inbox job result** now also counts "other emails" (not about a campaign email) and "already saved"; a passing check clears an old "Inbox check failed" error on the mailbox.
 - **Set send times (Oct 16, test kit):**
   - **Form:** "Set the times myself" with a per-email edit.
   - **Timing:** only due emails go out, also outside the window.
@@ -197,6 +199,8 @@ Pages were checked in the browser pane at desktop and phone width.
 - **Real deliverability:** Gmail Primary placement with the Personal style. On Oct 16 a test to the user's Gmail **landed in spam**. Cause found: the `hostingermail-a/b/c._domainkey` DKIM CNAMEs exist in Cloudflare but were **Proxied**, so they resolve to Cloudflare IPs and Gmail can't read the key. The user switched them to **DNS only** the same day; Google's public DNS returned the key right after. Not yet confirmed with a new test in Gmail's "Show original". SPF is fine; DMARC is `p=none`.
 - **Real servers:** AWS EC2, Google Cloud or Oracle; Caddy HTTPS with a real certificate; the backup script on a server.
 - **Phones:** push notifications on a real phone; PWA install on iPhone/Android.
+- **Real mailbox, Oct 16:** the local database had only one reply (Oct 15) and the Hostinger INBOX position was still UID 4, so no newer email had reached that INBOX by then. A read-only listing of the real inbox (sender, subject, thread headers) wasn't run because sudo timed out.
+- **Local Docker rebuilt Oct 16** with the reply-notification changes; a manual inbox run there reported no new emails of any kind in the Hostinger INBOX. Real push delivery to the user's Chrome is still to be seen with a live reply.
 - **Imports:** a real shared Google Sheet (only the error paths were tested).
 - **Other providers:** Microsoft 365 / Outlook.com (they need OAuth, which isn't built).
 
@@ -208,7 +212,6 @@ Pages were checked in the browser pane at desktop and phone width.
 - **Imports:** Excel files must be saved as CSV first (or use a Google Sheets link).
 - **Estimates:** expected send times are approximate (±15% gaps; a mailbox shared by several campaigns serves them in turn).
 - **Login limiter:** in memory, so it resets when the app restarts. Fine for one container.
-- **Unread badge:** updates on the next page load after reading a reply.
 - **Old test emails:** those sent before the counting fix aren't counted in "Sent in the last 24 hours".
 - **Gmail tabs:** placement can't be guaranteed. The Personal style removes the bulk-mail signals; a personal sender address (not `support@`), few links and engagement help further.
 

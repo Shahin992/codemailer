@@ -45,6 +45,11 @@ export default async function RepliesPage({ searchParams }: { searchParams: Prom
       attachments: replies.attachments,
       mailbox: senders.email,
       campaign: campaigns.name,
+      isAutoReply: replies.isAutoReply,
+      // When someone answers the same email more than once: which reply this is, and how many there are.
+      // The outer row is written as "replies"."…" on purpose (see lib/queries.ts); inside, r2 is the other replies.
+      threadPosition: sql<number>`(select count(*)::int from ${replies} r2 where r2.message_id = "replies"."message_id" and not r2.is_auto_reply and (r2.received_at, r2.id) <= ("replies"."received_at", "replies"."id"))`,
+      threadSize: sql<number>`(select count(*)::int from ${replies} r2 where r2.message_id = "replies"."message_id" and not r2.is_auto_reply)`,
     })
     .from(replies)
     .innerJoin(senders, eq(senders.id, replies.senderId))
@@ -117,6 +122,11 @@ export default async function RepliesPage({ searchParams }: { searchParams: Prom
                     <span className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted">
                       <span className="truncate">to {r.mailbox}</span>
                       {r.campaign && <Badge>{r.campaign}</Badge>}
+                      {!r.isAutoReply && r.threadSize > 1 && (
+                        <Badge tone="primary">
+                          reply {r.threadPosition} of {r.threadSize}
+                        </Badge>
+                      )}
                       {r.attachments.length > 0 && <Paperclip className="size-3.5" aria-label="Has attachments" />}
                     </span>
                   </span>

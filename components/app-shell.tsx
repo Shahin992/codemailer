@@ -4,6 +4,7 @@ import { Ban, Ellipsis, Inbox, LayoutDashboard, LogOut, Mail, Send, Settings, Us
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
+import { LiveUpdates } from "@/components/live-updates";
 import { cn } from "@/components/ui";
 import { APP_NAME_PARTS } from "@/lib/brand";
 
@@ -142,6 +143,8 @@ export function AppShell({
           </button>
         </div>
       </nav>
+
+      <LiveUpdates />
 
       {/* "More" sheet: phones */}
       {moreOpen && (

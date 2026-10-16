@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { and, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import { ArrowLeft } from "lucide-react";
 import { Time } from "@/components/client";
 import { FilterChips, ListSearch, Pagination } from "@/components/pagination";
@@ -207,7 +207,7 @@ async function RecipientDetail({ email, search }: { email: string; search: Searc
         .select({ id: replies.id, messageId: replies.messageId, receivedAt: replies.receivedAt, replyText: replies.replyText })
         .from(replies)
         .where(and(inArray(replies.messageId, history.map((m) => m.id)), eq(replies.isAutoReply, false)))
-        .orderBy(desc(replies.receivedAt))
+        .orderBy(asc(replies.receivedAt), asc(replies.id))
     : [];
 
   // Expected send time for anything on this page that's still queued (one estimate per campaign).
@@ -266,7 +266,7 @@ async function RecipientDetail({ email, search }: { email: string; search: Searc
         />
         <ol className="divide-y">
           {history.map((m) => {
-            const reply = theirReplies.find((r) => r.messageId === m.id);
+            const answers = theirReplies.filter((r) => r.messageId === m.id); // oldest first: every reply, not just one
             return (
               <li key={m.id} className="space-y-1 px-4 py-3 md:px-5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -289,11 +289,11 @@ async function RecipientDetail({ email, search }: { email: string; search: Searc
                   />
                 )}
                 {m.error && m.status !== "sent" && <p className="text-xs break-words text-danger">{m.error}</p>}
-                {reply && (
-                  <Link href={`/replies/${reply.id}`} className="mt-1 block rounded-lg bg-success-soft px-3 py-2 text-sm text-success">
-                    Replied <Time value={reply.receivedAt} mode="relative" />: “{snippet(reply.replyText, 120)}”
+                {answers.map((reply, i) => (
+                  <Link key={reply.id} href={`/replies/${reply.id}`} className="mt-1 block rounded-lg bg-success-soft px-3 py-2 text-sm text-success">
+                    {answers.length > 1 ? `Reply ${i + 1} of ${answers.length}` : "Replied"} <Time value={reply.receivedAt} mode="relative" />: “{snippet(reply.replyText, 120)}”
                   </Link>
-                )}
+                ))}
               </li>
             );
           })}

@@ -67,6 +67,7 @@ export default async function CampaignPage({
         name: recipients.name,
         sender: senders.email,
         replyId: sql<string | null>`(select r.id from ${replies} r where r.message_id = ${messages.id} order by r.received_at desc limit 1)`,
+        replyCount: sql<number>`(select count(*)::int from ${replies} r where r.message_id = ${messages.id})`,
       })
       .from(messages)
       .innerJoin(recipients, eq(recipients.id, messages.recipientId))
@@ -257,7 +258,7 @@ export default async function CampaignPage({
                   {r.status === "queued" && open && <SendTimeEditor messageId={r.id} current={pickerTime(r)} isSet={Boolean(r.scheduledAt)} />}
                   {r.replyId && (
                     <Link href={`/replies/${r.replyId}`} className="text-xs font-medium text-primary">
-                      Read reply →
+                      {r.replyCount > 1 ? `Read ${r.replyCount} replies →` : "Read reply →"}
                     </Link>
                   )}
                   {r.error && r.status !== "sent" && <p className="text-xs break-words text-danger">{r.error}</p>}
@@ -293,8 +294,8 @@ export default async function CampaignPage({
                         <div className="flex items-center gap-2">
                           <StatusBadge status={r.status} />
                           {r.replyId && (
-                            <Link href={`/replies/${r.replyId}`} className="text-xs font-medium text-primary hover:underline">
-                              Read
+                            <Link href={`/replies/${r.replyId}`} className="text-xs font-medium whitespace-nowrap text-primary hover:underline">
+                              {r.replyCount > 1 ? `Read ${r.replyCount}` : "Read"}
                             </Link>
                           )}
                         </div>

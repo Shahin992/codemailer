@@ -30,7 +30,8 @@ export async function sendPushToAll(payload: PushPayload): Promise<number> {
         await webpush.sendNotification(
           { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
           JSON.stringify(payload),
-          { TTL: 60 * 60 * 24 },
+          // "high" asks the push service to deliver at once, even to a sleeping phone; "normal" can wait until the device wakes.
+          { TTL: 60 * 60 * 24, urgency: "high" },
         );
         delivered++;
       } catch (err) {
