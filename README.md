@@ -41,7 +41,7 @@ docker compose up -d --build
 | `cron` | Calls the send job every minute and the inbox job every 5 minutes | — |
 | `adminer` | Database browser (server `db`, PostgreSQL, user/password from `.env`) | http://localhost:8080, this machine only |
 
-Open the app and create the first account. It becomes the admin. If `ADMIN_EMAIL` is set, only that address can create it.
+Open the app: it always starts on the sign-in page. Choose **Create one** to make the first account, which becomes the admin (if `ADMIN_EMAIL` is set, only that address can create it), then sign in with it. Creating an account never signs you in automatically.
 
 **Put it online:** [`docs/Deploy to AWS EC2.md`](docs/Deploy%20to%20AWS%20EC2.md) (t3.micro, free tier or credits), [`docs/Deploy to Google Cloud.md`](docs/Deploy%20to%20Google%20Cloud.md) (free e2-micro) and [`docs/Deploy to Oracle Cloud.md`](docs/Deploy%20to%20Oracle%20Cloud.md) walk through a small server with automatic HTTPS (Caddy, switched on by `COMPOSE_PROFILES=https` and `APP_DOMAIN` in `.env`) and nightly backups (`scripts/backup.sh`). Push notifications and installing the app need HTTPS. The app port and Adminer only listen on the machine itself; reach Adminer on a server through an SSH tunnel: `ssh -L 8080:127.0.0.1:8080 you@server`.
 

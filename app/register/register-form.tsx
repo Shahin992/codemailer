@@ -9,17 +9,6 @@ export function RegisterForm({ first }: { first: boolean }) {
   const { state, onSubmit, pending } = useActionForm<AuthState>(register, {});
   const err = state.fieldErrors ?? {};
 
-  if (state.message) {
-    return (
-      <Card className="space-y-4 p-5">
-        <Alert tone="success">{state.message}</Alert>
-        <Link href="/login" className="block text-center text-sm font-medium text-primary hover:underline">
-          Back to sign in
-        </Link>
-      </Card>
-    );
-  }
-
   return (
     <>
       <Card className="p-5">
@@ -42,14 +31,12 @@ export function RegisterForm({ first }: { first: boolean }) {
           </SubmitButton>
         </form>
       </Card>
-      {!first && (
-        <p className="mt-4 text-center text-sm text-muted">
-          Already have an account?{" "}
-          <Link href="/login" className="font-medium text-primary hover:underline">
-            Sign in
-          </Link>
-        </p>
-      )}
+      <p className="mt-4 text-center text-sm text-muted">
+        Already have an account?{" "}
+        <Link href="/login" className="font-medium text-primary hover:underline">
+          Sign in
+        </Link>
+      </p>
     </>
   );
 }

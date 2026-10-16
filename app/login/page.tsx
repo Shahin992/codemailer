@@ -11,14 +11,21 @@ import { APP_NAME } from "@/lib/brand";
 export const metadata: Metadata = { title: "Sign in" };
 export const dynamic = "force-dynamic";
 
-export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string }> }) {
+export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string; registered?: string }> }) {
   if (await getSession()) redirect("/");
   const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(users);
-  if (n === 0) redirect("/register"); // fresh install: create the admin account first
-  const { next } = await searchParams;
+  const { next, registered } = await searchParams;
+  const notice =
+    registered === "1"
+      ? { tone: "success" as const, text: "Account created. Sign in to continue." }
+      : registered === "pending"
+        ? { tone: "success" as const, text: "Account created. An admin needs to approve it before you can sign in." }
+        : n === 0
+          ? { tone: "info" as const, text: "No accounts yet. Create the admin account first, then sign in here." }
+          : undefined;
   return (
     <AuthShell title={`Sign in to ${APP_NAME}`}>
-      <LoginForm next={next ?? "/"} />
+      <LoginForm next={next ?? "/"} notice={notice} />
     </AuthShell>
   );
 }

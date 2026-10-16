@@ -42,7 +42,7 @@ Last updated: Oct 16, 2026 (set send times + countdowns, AWS EC2 guide, Docker b
 | Replies | Inbox job every 5 minutes, read-only (unread stays unread). Matches replies by `In-Reply-To`/`References`, else by address. Strips quoted history, saves attachments, flags auto-replies. **"No thanks / stop / unsubscribe / remove me" replies** put the person on the do-not-send list. Emailed "unsubscribe" requests do too. |
 | Do-not-send | Bounces, unsubscribes and manual entries. Skipped in every campaign. |
 | Recipients | Paged list with search and status filter. Per-person timeline: which mailbox, when, what happened. |
-| Accounts | Register and login with JWT. The first account is admin (restricted to `ADMIN_EMAIL` if set); later sign-ups need admin approval. Team page, password change, rate-limited logins (10 failures → 15-minute lock). |
+| Accounts | Register and login with JWT. The app always opens on the sign-in page; registering never signs you in, it returns to sign-in with a notice. The first account is admin (restricted to `ADMIN_EMAIL` if set); later sign-ups need admin approval. Team page, password change, rate-limited logins (10 failures → 15-minute lock). |
 | API | `/api/v1/*` with Bearer JWT (`POST /api/v1/auth/token`, or Settings → Create API token). Optional shared `API_KEY`. Paged lists return a `pagination` block. |
 | PWA | Installable app with an offline page. **Push notification for every reply.** Fully responsive: sidebar on desktop, bottom tabs on phones. |
 | Pagination | Every growing list is paged at the database (LIMIT/OFFSET with a count), with search and filters in the URL. |

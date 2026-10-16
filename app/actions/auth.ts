@@ -65,11 +65,8 @@ export async function register(_prev: AuthState, formData: FormData): Promise<Au
   });
 
   if ("error" in result) return { error: result.error };
-  if (result.first) {
-    await startSession(result.userId);
-    redirect("/");
-  }
-  return { message: "Account created. An admin needs to approve it before you can sign in." };
+  // No automatic sign-in: everyone signs in on the login page, which says whether the account still needs approval.
+  redirect(result.first ? "/login?registered=1" : "/login?registered=pending");
 }
 
 export async function logout() {
