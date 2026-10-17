@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { campaignSenders, campaigns, messages, recipients, senders, suppressions } from "@/lib/db/schema";
 import { requireSession } from "@/lib/auth";
 import { getSettings } from "@/lib/settings";
+import { timezoneGroups } from "@/lib/timezones";
 import { CampaignForm, type FollowUpInfo, type SenderOption } from "./campaign-form";
 
 export const metadata: Metadata = { title: "New campaign" };
@@ -104,6 +105,7 @@ export default async function NewCampaignPage({ searchParams }: { searchParams: 
             timezone: settings.timezone,
             weekdaysOnly: settings.weekdaysOnly,
           }}
+          zones={timezoneGroups(follow?.window.timezone ?? settings.timezone)}
         />
       )}
     </div>

@@ -12,7 +12,7 @@ ColdMailer sends email campaigns through your Hostinger business mailboxes, Gmai
 
   An email with a set time goes out at that time, even outside the send window, but never over a mailbox's daily limit.
 - **Tracking:** sent, bounced and replied, plus optional opens and clicks. Hard bounces and unsubscribes go on the do-not-send list automatically.
-- **Replies:** inboxes are read every 5 minutes, read-only, so unread mail stays unread. Replies are matched to the exact email they answer and pushed to your phone.
+- **Replies:** the app keeps an IMAP IDLE connection to each active inbox, so a reply is picked up within seconds and pushed to your phone; a full check (inbox and spam folder) also runs every 5 minutes. Read-only, so unread mail stays unread. Replies are matched to the exact email they answer.
 - **Follow-ups:** reply in the same thread, from the same mailbox, to everyone who hasn't answered.
 - **Team:** sign in and register. The first account is the admin; later sign-ups wait for an admin's approval. Logins and API access use JWTs.
 
@@ -84,7 +84,9 @@ CRON_SECRET=paste-the-value-from-.env
 */5 * * * * curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" http://127.0.0.1:3000/api/cron/inbox >/dev/null
 ```
 
-Settings → Background jobs shows whether both jobs are running.
+The dashboard warns when the jobs stop running.
+
+The instant reply check runs inside the app itself (started from `instrumentation.ts`), not in cron. Set `INBOX_WATCH=off` in `.env` to turn it off; the 5-minute check still runs.
 
 ## Connecting mailboxes
 
@@ -113,7 +115,7 @@ Start daily limits low (Hostinger about 20, Gmail about 10) and raise them slowl
 
 On New campaign → Recipients → **CSV or Google Sheet**:
 
-- **CSV:** needs an `email` column. Other columns (`name`, `company`…) become `{{name}}`, `{{company}}` fields. From Excel, use File → Save As → CSV.
+- **CSV:** up to 50 MB and 200,000 people. Needs an `email` column. Other columns (`name`, `company`…) become `{{name}}`, `{{company}}` fields. From Excel, use File → Save As → CSV. Large files are read in a background worker, and lists over 5,000 people are uploaded in parts of 5,000 with a progress bar: the campaign is a **draft** (nothing sends) until the last part is in. Checked with 100,000 rows / 20 MB (about 30 seconds) and 200,000 rows / 45 MB (about 50 seconds).
 - **Google Sheets:** paste the link. The sheet must be shared as "Anyone with the link can view". The tab in the link is the one imported.
 
 The campaign page shows how many sending days are left. Each day the mailboxes send up to their limits inside the send window, and the rest waits for the next day automatically.
@@ -180,9 +182,8 @@ Each has search and filters, a rows-per-page choice (10, 25, 50 or 100) and page
 
 ## API
 
-Every request carries a JWT: `Authorization: Bearer <token>`. Get a token in one of two ways:
+Every request carries a JWT: `Authorization: Bearer <token>`. Get a token with:
 
-- **Settings → API → Create API token:** for the MCP server or a script. Valid 1–90 days; copy it when shown.
 - **`POST /api/v1/auth/token`** with `{"email": "...", "password": "...", "days": 30}`. It returns `{"access_token": "eyJ…", "token_type": "Bearer", "expires_in": …}`.
 
 Tokens are signed with `AUTH_SECRET` (HS256). They're tied to a user, so campaigns created through the API show who made them, and a token stops working as soon as that account is disabled. Changing `AUTH_SECRET` cancels every token and signs everyone out. After 10 wrong passwords, that address is locked for 15 minutes. An `API_KEY` in `.env` also works as a Bearer token if you set one.

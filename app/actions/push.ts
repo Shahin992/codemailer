@@ -1,29 +1,41 @@
 "use server";
 
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
+import { revalidatePath } from "next/cache";
 import { requireSession } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { pushSubscriptions } from "@/lib/db/schema";
-import { pushConfigured, sendPushToAll } from "@/lib/push";
+import { INSTALLED_MARK, pushConfigured, saveSubscription, sendPushToAll, type PushResult, type SubscriptionInput } from "@/lib/push";
 import { APP_NAME } from "@/lib/brand";
 
-export async function savePushSubscription(sub: { endpoint: string; p256dh: string; auth: string }, userAgent: string) {
+/**
+ * Save this device's subscription. Called when notifications are turned on and again each time the app
+ * opens, so a phone whose subscription changed or was dropped is registered again without anyone noticing.
+ */
+export async function savePushSubscription(sub: SubscriptionInput, userAgent: string, installed = false, replaces: string | null = null) {
   const me = await requireSession();
-  if (!/^https:\/\//.test(sub.endpoint) || !sub.p256dh || !sub.auth) throw new Error("Invalid push subscription");
-  await db
-    .insert(pushSubscriptions)
-    .values({ userId: me.id, endpoint: sub.endpoint, p256dh: sub.p256dh, auth: sub.auth, userAgent: userAgent.slice(0, 300) })
-    .onConflictDoUpdate({ target: pushSubscriptions.endpoint, set: { userId: me.id, p256dh: sub.p256dh, auth: sub.auth } });
+  await saveSubscription(me.id, sub, installed ? `${userAgent} ${INSTALLED_MARK}` : userAgent, replaces);
 }
 
 export async function removePushSubscription(endpoint: string) {
   await requireSession();
   await db.delete(pushSubscriptions).where(eq(pushSubscriptions.endpoint, endpoint));
+  revalidatePath("/settings");
 }
 
-export async function sendTestPush(): Promise<{ sent: number; error?: string }> {
+/** Stop notifications to one of your devices (for example an old phone). */
+export async function removePushDevice(id: string) {
+  const me = await requireSession();
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return;
+  await db.delete(pushSubscriptions).where(and(eq(pushSubscriptions.id, id), eq(pushSubscriptions.userId, me.id)));
+  revalidatePath("/settings");
+}
+
+/** Send a test notification to every device and say, per device, whether the push service took it. */
+export async function sendTestPush(): Promise<{ results: PushResult[]; error?: string }> {
   await requireSession();
-  if (!pushConfigured()) return { sent: 0, error: "VAPID keys are missing from .env." };
-  const sent = await sendPushToAll({ title: APP_NAME, body: "Notifications work. You'll get one for each new reply.", url: "/replies", tag: "test" });
-  return { sent };
+  if (!pushConfigured()) return { results: [], error: "VAPID keys are missing from .env." };
+  const results = await sendPushToAll({ title: APP_NAME, body: "Notifications work. You'll get one for each new reply.", url: "/replies", tag: `test-${Date.now()}` });
+  revalidatePath("/settings");
+  return { results, error: results.length ? undefined : "No device has notifications turned on yet." };
 }

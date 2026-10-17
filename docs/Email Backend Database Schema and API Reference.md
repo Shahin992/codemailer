@@ -16,13 +16,13 @@ This page summarises both. The older, larger design is in `docs/archive/`.
 | `users` | Dashboard accounts: name, email, scrypt password hash, `role` (admin, member), `status` (active, pending, disabled). The first account is the admin. |
 | `senders` | Mailboxes. Holds: provider (hostinger, gmail, custom); SMTP server, port, encryption (`ssl`, `starttls`, `none`) and username; whether the inbox is read (`read_inbox`) and the IMAP server, port, encryption and username; for send-only mailboxes, the mailbox that receives replies (`reply_to_sender_id`); encrypted password (AES-256-GCM); daily limit; next turn (`next_send_at`); `rest_until` (no sending at all until then, set by a “limit exceeded” or “too many” error); status and last error; Sent/Spam folder names; inbox positions (`imap_state`). |
 | `recipients` | Everyone ever emailed: email, name, status (active, replied, bounced, unsubscribed), the mailbox that owns them (`sender_id`), first and last contact |
-| `campaigns` | Subject, body (text or HTML), send window and timezone, weekdays only, tracking switches, follow-up link, status (active, paused, done, cancelled), creator |
+| `campaigns` | Subject, body (text or HTML), send window and timezone, weekdays only, tracking switches, follow-up link, status (draft while a large list is still uploading, active, paused, done, cancelled), creator |
 | `campaign_senders` | The mailboxes chosen for each campaign |
 | `messages` | One email to one person. `queued` rows are the send queue. Holds merge fields, the final subject, the email's own `Message-ID`, status (queued, sending, sent, bounced, replied, failed, cancelled), `scheduled_at` (a send time someone chose; empty = automatic), attempts, errors, send/bounce/reply times, open and click counts. |
 | `replies` | Replies matched to a sent email: sender, subject, full text and HTML, the reply without quoted history, attachments, auto-reply flag, read state |
 | `tracking_links` | Original URLs behind tracked links |
 | `suppressions` | Do-not-send list (bounced, unsubscribed, manual) |
-| `push_subscriptions` | Browsers and phones that get reply notifications, per user |
+| `push_subscriptions` | Browsers and phones that get reply notifications, per user, with delivery health: last sent (push service accepted), last received (the device confirmed), last error |
 | `settings` | One row: footer text, default send window and timezone, test address |
 | `jobs` | Cron job locks and last-run results, shown in Settings |
 
@@ -67,7 +67,7 @@ Set times come from the campaign form ("Set the times myself"), from the API (`s
 - Both are HS256, issuer `coldmailer`, signed with `AUTH_SECRET`, with the user's id as `sub`.
 - Because the audiences differ, a login cookie can't be used as an API token or the other way round.
 - Every request checks that the user still exists and is active, so disabling an account stops its tokens at once.
-- API tokens come from Settings → API, or from `POST /api/v1/auth/token` with an email and password.
+- API tokens come from `POST /api/v1/auth/token` with an email and password.
 - 10 failed password attempts lock that address for 15 minutes.
 - The optional `API_KEY` from `.env` is still accepted as a Bearer token.
 
@@ -85,8 +85,11 @@ The dashboard uses Server Actions and a few signed-in routes. The public routes 
 | `GET` | `/api/v1/replies?since=` | JWT | New replies |
 | `GET` | `/api/v1/senders` | JWT | Mailboxes and today's usage |
 | `POST` | `/api/cron/send` | `CRON_SECRET` | Send due emails (every minute) |
-| `POST` | `/api/cron/inbox` | `CRON_SECRET` | Read inboxes for bounces and replies (every 5 minutes) |
-| `POST` | `/api/campaigns`, `/api/campaigns/test`, `/api/sheets` | Signed in | Create a campaign, send a test, import a Google Sheet |
+| `POST` | `/api/cron/inbox` | `CRON_SECRET` | Read inboxes and spam folders for bounces and replies (every 5 minutes; new inbox mail is also picked up within seconds by the IMAP IDLE watcher in the app) |
+| `POST` | `/api/campaigns`, `/api/campaigns/test`, `/api/sheets` | Signed in | Create a campaign, send a test, import a Google Sheet. With `"draft": true` the campaign holds the first part of a large list and doesn't send yet |
+| `POST` | `/api/campaigns/{id}/recipients` | Signed in | The next part of a draft campaign's list (`{"recipients": [...], "done": false}`, at most 10,000 per part); `"done": true` with the last part starts it. People already in the campaign are skipped, so resending a part is harmless |
+| `POST` | `/api/push/subscription` | Signed in | The service worker re-registers a renewed push subscription |
+| `POST` | `/api/push/received` | Subscription endpoint | The service worker confirms a notification arrived (shown per device in Settings) |
 | `GET` | `/t/o/{token}.gif`, `/t/c/{token}/{link_id}` | Signed token | Open pixel, click redirect |
 | `GET` / `POST` | `/u/{token}`, `/api/unsubscribe/{token}` | Signed token | Unsubscribe page, one-click unsubscribe |
 
@@ -159,4 +162,5 @@ Rejection reasons are `invalid` and `do_not_send`.
 | `TRACKING_SECRET` | Signs tracking and unsubscribe tokens |
 | `CRON_SECRET` | Protects `/api/cron/*` |
 | `API_KEY` | Optional shared Bearer key for `/api/v1/*` (JWTs are the usual way) |
-| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Push notifications |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Push notifications. `VAPID_SUBJECT` must be a real `mailto:` address (Apple refuses `localhost` ones) |
+| `INBOX_WATCH` | Optional: `off` turns off the instant (IMAP IDLE) reply check |

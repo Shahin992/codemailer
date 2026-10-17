@@ -1,5 +1,5 @@
 // Service worker: offline fallback page and reply push notifications.
-const CACHE = "coldmailer-v1";
+const CACHE = "coldmailer-v2";
 const OFFLINE_URL = "/offline.html";
 const PRECACHE = [OFFLINE_URL, "/icons/icon-192.png", "/icons/badge-96.png"];
 
@@ -33,22 +33,57 @@ self.addEventListener("push", (event) => {
   const title = data.title || "New reply";
   event.waitUntil(
     (async () => {
+      // Show the notification first and on every push: phones drop subscriptions whose pushes show nothing.
       await self.registration.showNotification(title, {
         body: data.body || "",
         icon: "/icons/icon-192.png",
         badge: "/icons/badge-96.png",
         tag: data.tag,
         renotify: Boolean(data.tag),
+        silent: false,
         // Stay on screen until clicked or closed, instead of disappearing into the notification list after a few seconds.
         requireInteraction: true,
         timestamp: Date.now(),
         vibrate: [120, 60, 120],
         data: { url: data.url || "/replies" },
       });
+      // Unread count on the installed app's icon (Android, iPhone, desktop), where supported.
+      if (typeof data.unread === "number" && self.navigator.setAppBadge) {
+        await (data.unread > 0 ? self.navigator.setAppBadge(data.unread) : self.navigator.clearAppBadge()).catch(() => {});
+      }
+      // Tell the server this device got it, so Settings can show that notifications really reach this phone.
+      const sub = await self.registration.pushManager.getSubscription();
+      if (sub) {
+        await fetch("/api/push/received", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ endpoint: sub.endpoint }),
+        }).catch(() => {});
+      }
       // Open ColdMailer pages refresh their reply lists and unread count.
       const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
       for (const client of windows) client.postMessage({ type: "push", title, body: data.body || "", url: data.url || "/replies" });
     })(),
+  );
+});
+
+// The browser renewed or dropped the subscription by itself: subscribe again and tell the server,
+// so replies keep reaching this device. (The app also re-checks this every time it opens.)
+self.addEventListener("pushsubscriptionchange", (event) => {
+  event.waitUntil(
+    (async () => {
+      const old = event.oldSubscription;
+      const key = old && old.options && old.options.applicationServerKey;
+      const sub = event.newSubscription || (key ? await self.registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key }) : null);
+      if (!sub) return;
+      const json = sub.toJSON();
+      await fetch("/api/push/subscription", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ endpoint: sub.endpoint, keys: json.keys, oldEndpoint: old ? old.endpoint : null }),
+      });
+    })().catch((err) => console.error("Push renewal failed", err)),
   );
 });
 

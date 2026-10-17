@@ -134,13 +134,14 @@ const tones: Record<Tone, string> = {
 
 export function Badge({ tone = "neutral", children, className }: { tone?: Tone; children: ReactNode; className?: string }) {
   return (
-    <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap", tones[tone], className)}>
-      {children}
+    <span className={cn("inline-flex max-w-full items-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap", tones[tone], className)}>
+      <span className="truncate">{children}</span>
     </span>
   );
 }
 
 const STATUS_TONES: Record<string, Tone> = {
+  draft: "warning",
   queued: "neutral",
   sending: "info",
   sent: "info",

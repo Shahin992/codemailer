@@ -178,24 +178,31 @@ export async function estimateCampaignQueue(campaignId: string): Promise<Map<str
   }
 
   // Same order as the send job: people tied to a mailbox go first on its turn, then everyone else in list order.
-  const tied = new Map<string, string[]>();
-  const open: string[] = [];
-  for (const m of pending.filter((p) => !p.scheduledAt)) {
-    if (m.senderId && boxes.some((b) => b.id === m.senderId)) tied.set(m.senderId, [...(tied.get(m.senderId) ?? []), m.id]);
-    else open.push(m.id);
+  // Queues are read with a moving position rather than shift(), which would copy a 100,000-email list on every step.
+  const tied = new Map<string, { ids: string[]; next: number }>();
+  const open = { ids: [] as string[], next: 0 };
+  const boxIds = new Set(boxes.map((b) => b.id));
+  for (const m of pending) {
+    if (m.scheduledAt) continue;
+    if (m.senderId && boxIds.has(m.senderId)) {
+      const queue = tied.get(m.senderId) ?? { ids: [], next: 0 };
+      queue.ids.push(m.id);
+      tied.set(m.senderId, queue);
+    } else open.ids.push(m.id);
   }
+  const left = (q: { ids: string[]; next: number } | undefined) => (q ? q.ids.length - q.next : 0);
 
   let remaining = pending.length - setTimes.length;
   for (let step = 0; step < MAX_STEPS && remaining > 0; step++) {
     let best: { box: SimMailbox; at: number } | null = null;
     for (const box of boxes) {
-      if (!(tied.get(box.id)?.length || open.length)) continue;
+      if (!(left(tied.get(box.id)) || left(open))) continue;
       const at = nextSlot(box, now, campaign);
       if (!best || at < best.at) best = { box, at };
     }
     if (!best) break;
     const own = tied.get(best.box.id);
-    const messageId = own?.length ? own.shift()! : open.shift()!;
+    const messageId = own && left(own) ? own.ids[own.next++] : open.ids[open.next++];
     result.set(messageId, { kind: "eta", at: new Date(best.at) });
     place(best.box, best.at);
     best.box.free = best.at + best.box.gap;

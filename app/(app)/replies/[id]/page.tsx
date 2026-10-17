@@ -8,6 +8,7 @@ import { markReplyUnread } from "@/app/actions/replies";
 import { SubmitButton, Time } from "@/components/client";
 import { Badge, Card, CardHeader, StatusBadge } from "@/components/ui";
 import { db } from "@/lib/db";
+import { emailPreviewDoc } from "@/lib/email-preview";
 import { campaigns, messages, recipients, replies, senders } from "@/lib/db/schema";
 
 export const metadata: Metadata = { title: "Reply" };
@@ -196,7 +197,7 @@ export default async function ReplyPage({ params }: { params: Promise<{ id: stri
             title="Full email"
             sandbox="allow-popups allow-popups-to-escape-sandbox"
             className="h-[60vh] w-full rounded-b-xl border-t bg-white"
-            srcDoc={`<!doctype html><html><head><meta charset="utf-8"><base target="_blank"></head><body style="font-family:Arial,sans-serif;font-size:14px;margin:16px;color:#222">${cleanHtml(reply.bodyHtml)}</body></html>`}
+            srcDoc={emailPreviewDoc(cleanHtml(reply.bodyHtml), { openLinksInNewTab: true })}
           />
         </details>
       )}

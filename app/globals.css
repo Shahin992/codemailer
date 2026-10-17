@@ -78,11 +78,22 @@
     -webkit-text-size-adjust: 100%;
     -webkit-tap-highlight-color: transparent;
   }
+  html,
+  body {
+    /* Nothing may make the page scroll sideways on a phone. "clip" (unlike "hidden") keeps sticky headers working. */
+    overflow-x: clip;
+  }
   body {
     background: var(--bg);
     color: var(--fg);
     font-family: var(--font-sans);
     min-height: 100dvh;
+    /* Long email addresses, links and subjects wrap instead of pushing the layout wider than the screen. */
+    overflow-wrap: anywhere;
+  }
+  /* A grid cell may shrink below its content's width (long emails truncate or wrap) instead of widening the column. */
+  :where(.grid) > * {
+    min-width: 0;
   }
   input,
   textarea,

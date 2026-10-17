@@ -57,6 +57,13 @@
       "when": 1792124760712,
       "tag": "0007_scheduled_send_times",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792222109530,
+      "tag": "0008_push_delivery_status",
+      "breakpoints": true
     }
   ]
 }

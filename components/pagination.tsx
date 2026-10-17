@@ -116,7 +116,7 @@ export function FilterChips({
 }) {
   const current = (Array.isArray(search[param]) ? search[param]?.[0] : search[param]) as string | undefined;
   return (
-    <div className="flex gap-1.5 overflow-x-auto">
+    <div className="flex flex-wrap gap-1.5">
       {options.map((o) => {
         const active = (current ?? "") === (o.value ?? "");
         return (
