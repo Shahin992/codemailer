@@ -5,6 +5,7 @@ import { SubmitButton, useActionForm } from "@/components/client";
 import { TimezoneSelect } from "@/components/timezone-select";
 import { Alert, Card, CardHeader, Checkbox, Field, Input, Textarea } from "@/components/ui";
 import type { TimezoneGroup } from "@/lib/timezones";
+import { LogoField, type LogoInfo } from "./logo-field";
 
 type Values = {
   footerText: string;
@@ -14,9 +15,11 @@ type Values = {
   timezone: string;
   weekdaysOnly: boolean;
   testEmail: string;
+  logoDisplayWidth: number;
+  logoInPersonal: boolean;
 };
 
-export function SettingsForm({ initial, zones }: { initial: Values; zones: TimezoneGroup[] }) {
+export function SettingsForm({ initial, zones, logo }: { initial: Values; zones: TimezoneGroup[]; logo: LogoInfo | null }) {
   const { state, onSubmit, pending } = useActionForm<FormState>(saveSettings, {});
 
   return (
@@ -42,7 +45,7 @@ export function SettingsForm({ initial, zones }: { initial: Values; zones: Timez
       </Card>
 
       <Card>
-        <CardHeader title="Email footer" description="Added under every campaign email." />
+        <CardHeader title="Email footer and logo" description="Added under every campaign email, like a signature." />
         <div className="space-y-4 p-4 md:p-5">
           <Field label="Opt-out line (personal-style emails)" htmlFor="optOutLine" hint="Used instead of an unsubscribe link. Leave empty to leave it out.">
             <Input id="optOutLine" name="optOutLine" defaultValue={initial.optOutLine} maxLength={300} />
@@ -50,6 +53,7 @@ export function SettingsForm({ initial, zones }: { initial: Values; zones: Timez
           <Field label="Footer text" htmlFor="footerText" hint="US law (CAN-SPAM) asks for a real postal address in commercial email.">
             <Textarea id="footerText" name="footerText" rows={3} defaultValue={initial.footerText} placeholder={"YourBrand Ltd\n123 Main Street, Dhaka 1212, Bangladesh"} />
           </Field>
+          <LogoField logo={logo} displayWidth={initial.logoDisplayWidth} inPersonal={initial.logoInPersonal} footerText={initial.footerText} />
         </div>
       </Card>
 

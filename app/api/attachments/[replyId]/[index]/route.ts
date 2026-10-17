@@ -1,10 +1,9 @@
 import { readFile } from "node:fs/promises";
-import path from "node:path";
 import { eq } from "drizzle-orm";
 import { getSession } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { replies } from "@/lib/db/schema";
-import { storageDir } from "@/lib/mail/inbound";
+import { storedPath } from "@/lib/storage";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ replyId: string; index: string }> }) {
   if (!(await getSession())) return new Response("Not signed in", { status: 401 });
@@ -14,9 +13,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ rep
   const attachment = reply?.attachments[Number(index)];
   if (!attachment) return new Response("Not found", { status: 404 });
 
-  const root = path.resolve(storageDir());
-  const file = path.resolve(root, attachment.path);
-  if (!file.startsWith(root + path.sep)) return new Response("Not found", { status: 404 });
+  const file = storedPath(attachment.path);
+  if (!file) return new Response("Not found", { status: 404 });
   const data = await readFile(file).catch(() => null);
   if (!data) return new Response("File is missing on the server", { status: 404 });
 

@@ -11,6 +11,7 @@ import { describeMailError } from "@/lib/mail/errors";
 import { textToHtml } from "@/lib/merge";
 import { isValidEmail, normalizeEmail } from "@/lib/recipients-parse";
 import { getSettings } from "@/lib/settings";
+import { emailLogo } from "@/lib/brand-logo";
 
 const schema = z.object({
   senderId: z.string().uuid(),
@@ -49,6 +50,7 @@ export async function POST(request: Request) {
       bodyHtml: isHtml ? input.body : textToHtml(input.body),
       bodyText: isHtml ? htmlToText(input.body, { wordwrap: false }) : input.body,
       footerText: settings.footerText,
+      logo: await emailLogo(settings, input.style),
     });
     const raw = await buildRawEmail(composed.mail);
     await sendRawEmail(configFromSender(sender), { from: sender.email, to: input.to }, raw);
