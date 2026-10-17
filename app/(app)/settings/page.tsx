@@ -1,3 +1,4 @@
+import { access } from "node:fs/promises";
 import type { Metadata } from "next";
 import { asc, desc, eq } from "drizzle-orm";
 import { PageHeader } from "@/components/ui";
@@ -7,6 +8,7 @@ import { pushSubscriptions, users } from "@/lib/db/schema";
 import { optionalEnv } from "@/lib/env";
 import { deviceLabel } from "@/lib/push";
 import { getSettings } from "@/lib/settings";
+import { storedPath } from "@/lib/storage";
 import { timezoneGroups } from "@/lib/timezones";
 import { PushToggle, type PushDevice } from "../replies/push-toggle";
 import { SettingsForm } from "./settings-form";
@@ -51,6 +53,19 @@ export default async function SettingsPage() {
     lastErrorAt: s.lastErrorAt?.toISOString() ?? null,
   }));
 
+  const logoPath = settings.logoFile ? storedPath(settings.logoFile) : null;
+  const logo =
+    settings.logoFile && settings.logoBytes && settings.logoWidth && settings.logoHeight
+      ? {
+          // The file name is the image's hash, so the URL changes whenever the logo does.
+          url: `/api/settings/logo?v=${encodeURIComponent(settings.logoFile.replace(/^brand\/logo-|\.\w+$/g, ""))}`,
+          bytes: settings.logoBytes,
+          width: settings.logoWidth,
+          height: settings.logoHeight,
+          missing: !logoPath || !(await access(logoPath).then(() => true, () => false)),
+        }
+      : null;
+
   return (
     <div className="mx-auto max-w-3xl space-y-5">
       <PageHeader title="Settings" />
@@ -64,8 +79,11 @@ export default async function SettingsPage() {
           timezone: settings.timezone,
           weekdaysOnly: settings.weekdaysOnly,
           testEmail: settings.testEmail ?? me.email,
+          logoDisplayWidth: settings.logoDisplayWidth,
+          logoInPersonal: settings.logoInPersonal,
         }}
         zones={timezoneGroups(settings.timezone)}
+        logo={logo}
       />
 
       <section className="space-y-2">

@@ -23,7 +23,7 @@ This page summarises both. The older, larger design is in `docs/archive/`.
 | `tracking_links` | Original URLs behind tracked links |
 | `suppressions` | Do-not-send list (bounced, unsubscribed, manual) |
 | `push_subscriptions` | Browsers and phones that get reply notifications, per user, with delivery health: last sent (push service accepted), last received (the device confirmed), last error |
-| `settings` | One row: footer text, default send window and timezone, test address |
+| `settings` | One row: footer text, opt-out line, default send window and timezone, test address, and the email logo (file path in `STORAGE_DIR`, type, size, pixel size, width in emails, whether personal-style emails use it) |
 | `jobs` | Cron job locks and last-run results, shown in Settings |
 
 ## Picking the next mailbox
@@ -88,6 +88,7 @@ The dashboard uses Server Actions and a few signed-in routes. The public routes 
 | `POST` | `/api/cron/inbox` | `CRON_SECRET` | Read inboxes and spam folders for bounces and replies (every 5 minutes; new inbox mail is also picked up within seconds by the IMAP IDLE watcher in the app) |
 | `POST` | `/api/campaigns`, `/api/campaigns/test`, `/api/sheets` | Signed in | Create a campaign, send a test, import a Google Sheet. With `"draft": true` the campaign holds the first part of a large list and doesn't send yet |
 | `POST` | `/api/campaigns/{id}/recipients` | Signed in | The next part of a draft campaign's list (`{"recipients": [...], "done": false}`, at most 10,000 per part); `"done": true` with the last part starts it. People already in the campaign are skipped, so resending a part is harmless |
+| `GET` / `POST` / `DELETE` | `/api/settings/logo` | Signed in | The email logo: show it, upload a new one (multipart field `logo`; PNG, JPG or GIF, up to 1 MB), remove it |
 | `POST` | `/api/push/subscription` | Signed in | The service worker re-registers a renewed push subscription |
 | `POST` | `/api/push/received` | Subscription endpoint | The service worker confirms a notification arrived (shown per device in Settings) |
 | `GET` | `/t/o/{token}.gif`, `/t/c/{token}/{link_id}` | Signed token | Open pixel, click redirect |

@@ -34,6 +34,7 @@ Last updated: Oct 17, 2026 (instant reply check and phone push diagnostics, time
   - **Settings:** Background jobs and API sections removed (the API token button is gone; `POST /api/v1/auth/token` still issues tokens).
   - **CSV:** up to 50 MB / 200,000 people. Lists over 5,000 go up in parts (`/api/campaigns/{id}/recipients`) while the campaign is a `draft`. The proxy only buffers 10 MB of a request body, which is why one big request failed.
   - **Phone layout:** no page scrolls sideways at 375 px with very long emails, subjects and links (checked all 13 pages).
+  - **Email logo:** Settings → Email footer and logo takes a PNG/JPG/GIF up to 1 MB (`/api/settings/logo`, `lib/brand-logo.ts`), checked by content, saved as `STORAGE_DIR/brand/logo-<hash>.<ext>` (migration `0009`). It's embedded in each email as an inline `cid:` image above the footer text; personal-style emails then carry a simple HTML part too (switch "Also in personal-style emails"). Tested with the test kit: upload, refusals (SVG, fake PNG, over 1 MB), replace, remove, test emails and a real send-job email. `scripts/backup.sh` now also backs up `STORAGE_DIR`.
 - **SMTP EHLO name** is now the mailbox's domain instead of the container id (`lib/mail/connection.ts`, Oct 16). Typecheck passes; not yet rebuilt into the local Docker images (`sudo docker compose up -d --build`).
 - **Public address chosen:** `https://coldmailer.edufusionbd.online`. The domain's DNS is at **Cloudflare** (nameservers `lennon`/`laura.ns.cloudflare.com`), not Hostinger: add records there, as **DNS only**. `deploy/server.env` is ready for it. "coldmailer" appears in every email's unsubscribe link; a neutral subdomain would hide that. Decide before sending real campaigns, because the address must not change afterwards.
 
@@ -93,7 +94,7 @@ lib/mail/               connection (SMTP/IMAP), compose (personal/newsletter), i
 lib/queue-eta.ts        expected-send-time simulation
 lib/queries.ts          the 24-hour sent count (see the comment there: why "senders"."id" is written out)
 lib/db/schema.ts        all tables
-drizzle/                migrations 0000–0008 (+ meta)
+drizzle/                migrations 0000–0009 (+ meta)
 scripts/                db-sync.sh, migrate.mjs, cron.mjs, generate-keys.mjs, backup.sh
 deploy/                 Caddyfile, server.env (server secrets; private, not in git or images)
 tools/test-env/         throwaway Postgres/SMTP/IMAP servers for testing (see its README)
@@ -117,6 +118,7 @@ public/                 sw.js (push + offline), offline.html, icons/, brand/
   | `0006` | Email style and opt-out line |
   | `0007` | `messages.scheduled_at` (set send times) and `senders.rest_until` |
   | `0008` | Push delivery health per device (`last_sent_at`, `last_received_at`, `last_error`, `last_error_at`) |
+  | `0009` | Email logo in `settings` (file, type, size, pixel size, display width, use in personal emails) |
 
 - **Process:** change `lib/db/schema.ts`, then either:
   - run `docker compose up --build`, where the `migrate` container generates the migration file into `drizzle/` and applies it; or

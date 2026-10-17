@@ -8,15 +8,12 @@ import { db } from "@/lib/db";
 import { messages, recipients, replies, senders, suppressions, type AttachmentMeta, type Sender } from "@/lib/db/schema";
 import { extractReplyText, isAutoReply, isBounce, isOptOutReply, messageIdList, parseBounce, senderAddress } from "@/lib/mail/inbound-parse";
 import { sendPushToAll, snippet } from "@/lib/push";
+import { storageDir } from "@/lib/storage";
 
 export type InboundResult = "reply" | "auto_reply" | "bounce" | "unsubscribe" | "ignored" | "duplicate";
 
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 const ADDRESS_MATCH_DAYS = 30;
-
-export function storageDir(): string {
-  return process.env.STORAGE_DIR || path.join(process.cwd(), "storage");
-}
 
 async function findMessageByHeaders(ids: string[]) {
   if (!ids.length) return undefined;

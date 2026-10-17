@@ -21,6 +21,7 @@ import { classifySmtpError, describeMailError } from "@/lib/mail/errors";
 import { sentLast24h } from "@/lib/queries";
 import { getSettings } from "@/lib/settings";
 import { isInsideWindow, sendGapMs } from "@/lib/time-window";
+import { emailLogo } from "@/lib/brand-logo";
 
 const TIME_BUDGET_MS = 45_000; // the job runs every minute
 const MAX_ATTEMPTS = 3;
@@ -179,6 +180,7 @@ async function sendOne(campaign: Campaign, sender: Sender, message: Message, set
       bodyHtml: campaign.bodyHtml,
       bodyText: campaign.bodyText,
       footerText: settings.footerText,
+      logo: await emailLogo(settings, campaign.style),
       messageId: message.id,
       thread: await threadFor(message),
       trackOpens: campaign.style === "newsletter" && campaign.trackOpens,

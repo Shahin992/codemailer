@@ -88,6 +88,14 @@ The dashboard warns when the jobs stop running.
 
 The instant reply check runs inside the app itself (started from `instrumentation.ts`), not in cron. Set `INBOX_WATCH=off` in `.env` to turn it off; the 5-minute check still runs.
 
+## Email footer and logo
+
+Settings → Email footer and logo:
+
+- **Footer text and opt-out line** go under every campaign email.
+- **Logo:** PNG, JPG or GIF up to 1 MB (under 100 KB is best: every email carries a copy). It sits above the footer text like a signature and is embedded in the email (an inline `cid:` image), so it shows without "load images" and personal-style emails still contain no links to this server. The file is checked by its content (not its name), stored as `STORAGE_DIR/brand/logo-<hash>.<ext>`, and the old file is removed when you replace or remove it. `scripts/backup.sh` backs up `STORAGE_DIR` along with the database.
+- **Also in personal-style emails** (on by default): those then go out as plain text plus simple HTML instead of plain text only. Images can make Gmail file cold email under Promotions; switch it off for the best chance of the Primary inbox.
+
 ## Connecting mailboxes
 
 **Hostinger:** use the mailbox password from hPanel → Emails → Mailboxes. Servers are filled in (`smtp.hostinger.com:465`, `imap.hostinger.com:993`).

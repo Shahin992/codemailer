@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { makeToken } from "@/lib/crypto";
 import { appUrl } from "@/lib/env";
+import type { EmailLogo } from "@/lib/brand-logo";
 import type { MailOptions } from "@/lib/mail/connection";
 import { buildVars, escapeHtml, fillFields } from "@/lib/merge";
 
@@ -22,6 +23,8 @@ export type ComposeParts = {
   bodyHtml: string;
   bodyText: string;
   footerText: string;
+  /** Logo shown above the footer text, like a signature (see lib/brand-logo.ts). */
+  logo?: EmailLogo | null;
   /** Message row id; used for unsubscribe and tracking tokens. Absent for test emails. */
   messageId?: string;
   /** Set for follow-ups: the earlier email in the thread, newest last. */
@@ -49,6 +52,19 @@ export function newMessageIdHeader(senderEmail: string): string {
 
 function replySubject(subject: string): string {
   return /^re:/i.test(subject.trim()) ? subject.trim() : `Re: ${subject.trim()}`;
+}
+
+/** The logo as an inline image: embedded in the email (cid:), so it shows without loading anything from the web. */
+function logoParts(p: ComposeParts): { img: string; attachments: NonNullable<MailOptions["attachments"]> } | null {
+  if (!p.logo) return null;
+  const cid = `logo@${domainOf(p.sender.email)}`;
+  const alt = escapeHtml(p.footerText.trim().split("\n")[0] || p.sender.displayName || "Logo");
+  return {
+    img:
+      `<img src="cid:${cid}" width="${p.logo.width}" height="${p.logo.height}" alt="${alt}" ` +
+      `style="display:block;border:0;outline:none;max-width:100%;width:${p.logo.width}px;height:auto">`,
+    attachments: [{ filename: p.logo.filename, content: p.logo.content, contentType: p.logo.mime, cid, contentDisposition: "inline" }],
+  };
 }
 
 async function rewriteLinks(html: string, track: (url: string) => Promise<string>, skip: string): Promise<string> {
@@ -79,7 +95,10 @@ export async function composeEmail(p: ComposeParts): Promise<ComposedEmail> {
     ...(references.length ? { inReplyTo: references[references.length - 1], references: references.join(" ") } : {}),
   };
 
-  if (p.style === "personal") return { mail: { ...base, ...personalBody(p, vars) }, subject, messageIdHeader };
+  const logo = logoParts(p);
+  if (p.style === "personal") {
+    return { mail: { ...base, ...personalBody(p, vars, logo?.img), ...(logo ? { attachments: logo.attachments } : {}) }, subject, messageIdHeader };
+  }
 
   let html = fillFields(p.bodyHtml, vars, true);
   let text = fillFields(p.bodyText, vars);
@@ -91,8 +110,9 @@ export async function composeEmail(p: ComposeParts): Promise<ComposedEmail> {
 
   const footer = p.footerText.trim();
   text += `\n\n--\n${footer ? `${footer}\n` : ""}Unsubscribe: ${unsubscribeUrl}\n`;
+  if (logo) html += `<div style="margin-top:24px">${logo.img}</div>`;
   html +=
-    `<p style="margin-top:24px;color:#888;font-size:12px;line-height:1.4">` +
+    `<p style="margin-top:${logo ? 12 : 24}px;color:#888;font-size:12px;line-height:1.4">` +
     (footer ? `${escapeHtml(footer).replace(/\n/g, "<br>")}<br>` : "") +
     `<a href="${unsubscribeUrl}" style="color:#888">Unsubscribe</a></p>`;
 
@@ -108,6 +128,7 @@ export async function composeEmail(p: ComposeParts): Promise<ComposedEmail> {
     ...base,
     text,
     html: document,
+    ...(logo ? { attachments: logo.attachments } : {}),
     headers: {
       "List-Unsubscribe": `<${oneClickUrl}>, <mailto:${p.replyTo ?? p.sender.email}?subject=unsubscribe>`,
       "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
@@ -119,16 +140,20 @@ export async function composeEmail(p: ComposeParts): Promise<ComposedEmail> {
 
 /**
  * What a person typing in their mail app would send: a plain-text body (HTML only if the campaign
- * was written in HTML, and then without any template styling), the reply-to-opt-out line and the
- * footer as a plain signature. No unsubscribe header, link, tracking image or rewritten links:
- * those are what make Gmail file mail under Promotions.
+ * was written in HTML or there is a logo, and then without any template styling), the reply-to-opt-out
+ * line and the footer as a plain signature, with the logo above it. No unsubscribe header, link, tracking
+ * image or rewritten links: those are what make Gmail file mail under Promotions.
  */
-function personalBody(p: ComposeParts, vars: Record<string, string>): Pick<MailOptions, "text" | "html"> {
-  const extras = [p.optOutLine.trim(), p.footerText.trim()].filter(Boolean);
-  const text = [fillFields(p.bodyText, vars).trim(), ...extras].join("\n\n") + "\n";
-  if (p.bodyFormat === "text") return { text };
+function personalBody(p: ComposeParts, vars: Record<string, string>, logoImg?: string): Pick<MailOptions, "text" | "html"> {
+  const optOut = p.optOutLine.trim();
+  const footer = p.footerText.trim();
+  const text = [fillFields(p.bodyText, vars).trim(), optOut, footer].filter(Boolean).join("\n\n") + "\n";
+  if (p.bodyFormat === "text" && !logoImg) return { text };
+  const paragraph = (line: string) => `<p>${escapeHtml(line).replace(/\n/g, "<br>")}</p>`;
   const html =
     fillFields(p.bodyHtml, vars, true) +
-    extras.map((line) => `<p>${escapeHtml(line).replace(/\n/g, "<br>")}</p>`).join("");
+    (optOut ? paragraph(optOut) : "") +
+    (logoImg ? `<div style="margin-top:16px">${logoImg}</div>` : "") +
+    (footer ? paragraph(footer) : "");
   return { text, html: `<!doctype html><html><head><meta charset="utf-8"></head><body>${html}</body></html>` };
 }

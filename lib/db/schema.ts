@@ -255,6 +255,16 @@ export const settings = pgTable("settings", {
   timezone: text("timezone").notNull().default("America/New_York"),
   weekdaysOnly: boolean("weekdays_only").notNull().default(true),
   testEmail: text("test_email"),
+  // Logo shown with the footer, like an email signature. The image file lives in STORAGE_DIR (logoFile is
+  // its path there, named by its content hash); the rest describes it so emails can be built without reading it.
+  logoFile: text("logo_file"),
+  logoMime: text("logo_mime"),
+  logoBytes: integer("logo_bytes"),
+  logoWidth: integer("logo_width"),
+  logoHeight: integer("logo_height"),
+  logoDisplayWidth: integer("logo_display_width").notNull().default(160),
+  // Personal-style emails are plain text; with a logo they go out as simple HTML instead.
+  logoInPersonal: boolean("logo_in_personal").notNull().default(true),
   updatedAt: timestamp("updated_at", tz).notNull().defaultNow(),
 });
 

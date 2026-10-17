@@ -9,6 +9,7 @@ import { recipients, settings, suppressions } from "@/lib/db/schema";
 import { checkRecipients, parseTypedList } from "@/lib/recipients-parse";
 import { getSettings } from "@/lib/settings";
 import { isValidHm, isValidTimeZone } from "@/lib/time-window";
+import { LOGO_MAX_WIDTH, LOGO_MIN_WIDTH } from "@/lib/brand-logo";
 
 export type FormState = { error?: string; message?: string };
 
@@ -20,6 +21,8 @@ const settingsSchema = z.object({
   timezone: z.string().refine(isValidTimeZone, "Unknown timezone"),
   weekdaysOnly: z.boolean(),
   testEmail: z.string().trim().max(254),
+  logoDisplayWidth: z.number().int(`Logo width: use ${LOGO_MIN_WIDTH} to ${LOGO_MAX_WIDTH} pixels`).min(LOGO_MIN_WIDTH, `Logo width: use ${LOGO_MIN_WIDTH} to ${LOGO_MAX_WIDTH} pixels`).max(LOGO_MAX_WIDTH, `Logo width: use ${LOGO_MIN_WIDTH} to ${LOGO_MAX_WIDTH} pixels`),
+  logoInPersonal: z.boolean(),
 });
 
 export async function saveSettings(_prev: FormState, formData: FormData): Promise<FormState> {
@@ -32,6 +35,8 @@ export async function saveSettings(_prev: FormState, formData: FormData): Promis
     timezone: String(formData.get("timezone") ?? ""),
     weekdaysOnly: formData.get("weekdaysOnly") === "on",
     testEmail: String(formData.get("testEmail") ?? ""),
+    logoDisplayWidth: Number(formData.get("logoDisplayWidth") ?? 160),
+    logoInPersonal: formData.get("logoInPersonal") === "on",
   });
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Check the fields" };
   await getSettings();
