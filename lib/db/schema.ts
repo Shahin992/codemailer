@@ -107,7 +107,8 @@ export const campaigns = pgTable("campaigns", {
   windowEnd: text("window_end").notNull().default("17:00"),
   timezone: text("timezone").notNull().default("America/New_York"),
   weekdaysOnly: boolean("weekdays_only").notNull().default(true),
-  status: text("status", { enum: ["active", "paused", "done", "cancelled"] }).notNull().default("active"),
+  // draft: a large list is still being uploaded in parts; nothing sends until it's complete.
+  status: text("status", { enum: ["draft", "active", "paused", "done", "cancelled"] }).notNull().default("active"),
   totalRecipients: integer("total_recipients").notNull().default(0),
   source: text("source", { enum: ["ui", "api"] }).notNull().default("ui"),
   createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
@@ -235,6 +236,12 @@ export const pushSubscriptions = pgTable("push_subscriptions", {
   auth: text("auth").notNull(),
   userAgent: text("user_agent"),
   createdAt: timestamp("created_at", tz).notNull().defaultNow(),
+  // Delivery health, shown per device in Settings: when the push service last accepted a notification for it,
+  // when the device last confirmed one arrived (its service worker reports back), and the last refusal.
+  lastSentAt: timestamp("last_sent_at", tz),
+  lastReceivedAt: timestamp("last_received_at", tz),
+  lastError: text("last_error"),
+  lastErrorAt: timestamp("last_error_at", tz),
 });
 
 // App-wide settings (a single row with id = 1)

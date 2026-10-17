@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { and, asc, desc, eq, ilike, or, sql } from "drizzle-orm";
 import { ArrowLeft, Ban, MailPlus, Pause, Play, RotateCcw } from "lucide-react";
-import { cancelCampaign, retryFailed, setCampaignStatus } from "@/app/actions/campaigns";
+import { cancelCampaign, discardDraftCampaign, retryFailed, setCampaignStatus } from "@/app/actions/campaigns";
 import { SubmitButton, Time } from "@/components/client";
 import { FilterChips, ListSearch, Pagination } from "@/components/pagination";
 import { Alert, ButtonLink, Card, CardHeader, Progress, Stat, StatusBadge } from "@/components/ui";
@@ -11,6 +11,7 @@ import { campaignCounts, EMPTY_COUNTS } from "@/lib/campaigns";
 import { db } from "@/lib/db";
 import { campaignSenders, campaigns, messages, recipients, replies, senders, MESSAGE_STATUSES, type MessageStatus } from "@/lib/db/schema";
 import { estimateSendingDays, isInsideWindow } from "@/lib/time-window";
+import { timezoneName } from "@/lib/timezones";
 import { QueueEta } from "@/components/queue-eta";
 import { SendTimeEditor } from "@/components/send-time-editor";
 import { estimateCampaignQueue, estimateTime, type QueueEstimate } from "@/lib/queue-eta";
@@ -88,11 +89,14 @@ export default async function CampaignPage({
     .filter((e) => e.kind === "eta" || e.kind === "scheduled")
     .sort((a, b) => estimateTime(a)!.getTime() - estimateTime(b)!.getTime());
   const nextEta = timed[0];
-  const lastEta = timed[timed.length - 1];
+  // Only when every waiting email has an estimate; past the estimate's horizon the true last one isn't known.
+  const lastEta = timed.length === counts.queued ? timed[timed.length - 1] : undefined;
   const hasSetTimes = timed.some((e) => e.kind === "scheduled");
   // Fills the time picker: the time it's set for, else when it's expected.
   const pickerTime = (r: { id: string; scheduledAt: Date | null }) => (r.scheduledAt ?? estimateTime(etas.get(r.id)))?.toISOString() ?? null;
   const inWindow = isInsideWindow(new Date(), campaign);
+  // Times on this page are shown on the campaign's clock (its recipients' timezone), not the viewer's.
+  const tz = campaign.timezone;
   const canPause = campaign.status === "active";
   const canResume = campaign.status === "paused";
   const open = campaign.status === "active" || campaign.status === "paused";
@@ -159,6 +163,17 @@ export default async function CampaignPage({
         </div>
       </div>
 
+      {campaign.status === "draft" && (
+        <Alert tone="warning" title="The list hasn't finished uploading">
+          Nothing is sent from this campaign until it has. If the upload stopped (for example the page was closed), delete it and create the campaign
+          again.
+          <form action={discardDraftCampaign.bind(null, id, "/campaigns")} className="mt-2">
+            <SubmitButton variant="danger" size="sm" confirm="Delete this unfinished campaign?">
+              Delete
+            </SubmitButton>
+          </form>
+        </Alert>
+      )}
       {query.created && (
         <Alert tone="success" title="Campaign started">
           {query.created} emails queued{Number(query.skipped) > 0 ? `, ${query.skipped} skipped (invalid, duplicate or on the do-not-send list)` : ""}.{" "}
@@ -170,7 +185,7 @@ export default async function CampaignPage({
       )}
       {campaign.status === "active" && !inWindow && (
         <Alert tone="info">
-          Outside the send window right now ({campaign.windowStart}–{campaign.windowEnd} {campaign.timezone}
+          Outside the send window right now ({campaign.windowStart}–{campaign.windowEnd} {timezoneName(tz)} time
           {campaign.weekdaysOnly ? ", weekdays" : ""}). Sending resumes when it opens{hasSetTimes ? "; emails with a set time still go out at that time" : ""}.
         </Alert>
       )}
@@ -179,7 +194,7 @@ export default async function CampaignPage({
       )}
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Stat label="Sent" value={`${counts.sent}/${counts.total}`} hint={`${counts.queued} waiting`} />
+        <Stat label="Sent" value={`${counts.sent.toLocaleString()}/${counts.total.toLocaleString()}`} hint={`${counts.queued.toLocaleString()} waiting`} />
         <Stat label="Replied" value={counts.replied} hint={counts.sent ? `${Math.round((counts.replied / counts.sent) * 100)}% of sent` : undefined} />
         <Stat label="Bounced" value={counts.bounced} hint={counts.failed ? `${counts.failed} failed` : undefined} />
         <Stat
@@ -194,17 +209,17 @@ export default async function CampaignPage({
           <p className="mt-3 text-sm">
             {capacity > 0 ? (
               <>
-                {counts.queued} still waiting. At up to {capacity} a day from these mailboxes, about{" "}
+                {counts.queued.toLocaleString()} still waiting. At up to {capacity.toLocaleString()} a day from these mailboxes, about{" "}
                 <strong>
-                  {daysLeft} more sending day{daysLeft === 1 ? "" : "s"}
+                  {daysLeft.toLocaleString()} more sending day{daysLeft === 1 ? "" : "s"}
                 </strong>
                 . Whatever is left after today's limits continues automatically tomorrow.
                 {nextEta && (
                   <span className="mt-1 block text-muted">
-                    Next email <QueueEta estimate={nextEta} />
+                    Next email <QueueEta estimate={nextEta} timeZone={tz} />
                     {lastEta && lastEta !== nextEta && (
                       <>
-                        {" "}· last one around <Time value={estimateTime(lastEta)} />
+                        {" "}· last one around <Time value={estimateTime(lastEta)} timeZone={tz} />
                       </>
                     )}
                     .
@@ -218,12 +233,12 @@ export default async function CampaignPage({
         )}
         <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted">
           <span>
-            Window: {campaign.windowStart}–{campaign.windowEnd} {campaign.timezone}
+            Window: {campaign.windowStart}–{campaign.windowEnd} {timezoneName(tz)} time ({tz})
             {campaign.weekdaysOnly ? " · weekdays" : ""}
           </span>
           <span className="break-all">From: {mailboxes.map((m) => m.email).join(", ")}</span>
           <span>
-            Created <Time value={campaign.createdAt} />
+            Created <Time value={campaign.createdAt} timeZone={tz} />
           </span>
         </div>
       </Card>
@@ -252,10 +267,10 @@ export default async function CampaignPage({
                   </div>
                   <p className="text-xs text-muted">
                     {r.sender ?? "mailbox chosen when it sends"} ·{" "}
-                    {r.sentAt ? <Time value={r.sentAt} /> : r.status === "queued" ? <QueueEta estimate={etas.get(r.id)} /> : "not sent"}
+                    {r.sentAt ? <Time value={r.sentAt} timeZone={tz} /> : r.status === "queued" ? <QueueEta estimate={etas.get(r.id)} timeZone={tz} /> : "not sent"}
                     {(r.openCount > 0 || r.clickCount > 0) && ` · ${r.openCount} opens, ${r.clickCount} clicks`}
                   </p>
-                  {r.status === "queued" && open && <SendTimeEditor messageId={r.id} current={pickerTime(r)} isSet={Boolean(r.scheduledAt)} />}
+                  {r.status === "queued" && open && <SendTimeEditor messageId={r.id} current={pickerTime(r)} isSet={Boolean(r.scheduledAt)} timeZone={tz} />}
                   {r.replyId && (
                     <Link href={`/replies/${r.replyId}`} className="text-xs font-medium text-primary">
                       {r.replyCount > 1 ? `Read ${r.replyCount} replies →` : "Read reply →"}
@@ -303,12 +318,12 @@ export default async function CampaignPage({
                       <td className="px-3 py-3 text-muted">
                         {r.sentAt ? (
                           <span className="whitespace-nowrap">
-                            <Time value={r.sentAt} />
+                            <Time value={r.sentAt} timeZone={tz} />
                           </span>
                         ) : r.status === "queued" ? (
                           <div className="max-w-72 space-y-1">
-                            <QueueEta estimate={etas.get(r.id)} className="block text-xs" />
-                            {open && <SendTimeEditor messageId={r.id} current={pickerTime(r)} isSet={Boolean(r.scheduledAt)} />}
+                            <QueueEta estimate={etas.get(r.id)} className="block text-xs" timeZone={tz} />
+                            {open && <SendTimeEditor messageId={r.id} current={pickerTime(r)} isSet={Boolean(r.scheduledAt)} timeZone={tz} />}
                           </div>
                         ) : (
                           "—"

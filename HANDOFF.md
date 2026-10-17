@@ -1,6 +1,6 @@
 # ColdMailer: handoff notes
 
-Last updated: Oct 16, 2026 (reply notifications and multiple replies per person; before that set send times, AWS EC2 guide, Docker build re-check). Read this first in the next session.
+Last updated: Oct 17, 2026 (instant reply check and phone push diagnostics, timezones, phone layout, 50 MB CSV uploads in parts, slimmer Settings; before that reply notifications, set send times, AWS EC2 guide). Read this first in the next session.
 
 ## Contents
 
@@ -27,6 +27,13 @@ Last updated: Oct 16, 2026 (reply notifications and multiple replies per person;
   - Alternative: **Google Cloud's free e2-micro**, [`docs/Deploy to Google Cloud.md`](docs/Deploy%20to%20Google%20Cloud.md).
   - Fallback: a Hostinger VPS (KVM 1, about $5–7/month).
 - **Docker build re-checked Oct 16:** images build cleanly (Next.js compile, TypeScript and 15 pages, no warnings); the stack starts; `migrate` reports "Database is up to date"; pages, 401s on API/cron without credentials, and security headers OK; the Caddyfile validates for the real domain. The running stack uses about 200 MB of RAM.
+- **Oct 17 changes (not yet in the local Docker images or on a server; `npm run build` passes):**
+  - **Phone push:** the user reported desktop Chrome gets reply notifications but the phone PWA gets **none**. Cause not yet known. Added: the app re-registers the device's push subscription every time it opens (`components/push-sync.tsx`), a `pushsubscriptionchange` handler in `sw.js`, and per-device delivery health in Settings → Reply notifications (sent / arrived / refused, from migration `0008`). Next step: open the app on the phone, press "Send test", and read that phone's line.
+  - **Instant reply check:** `lib/jobs/inbox-watch.ts` (started by `instrumentation.ts`) keeps an IMAP IDLE connection per active mailbox; new inbox mail is checked within about 3 seconds (verified with the test kit). Cron's 5-minute check stays as the safety net and still covers the spam folder.
+  - **Timezones:** a full timezone dropdown (`components/timezone-select.tsx`, list from `lib/timezones.ts`) in Settings and New campaign. The campaign timezone now drives the send window **and** set times ("9:00 in Arizona" = 16:00 UTC); campaign pages and the time editor show times in the campaign's timezone.
+  - **Settings:** Background jobs and API sections removed (the API token button is gone; `POST /api/v1/auth/token` still issues tokens).
+  - **CSV:** up to 50 MB / 200,000 people. Lists over 5,000 go up in parts (`/api/campaigns/{id}/recipients`) while the campaign is a `draft`. The proxy only buffers 10 MB of a request body, which is why one big request failed.
+  - **Phone layout:** no page scrolls sideways at 375 px with very long emails, subjects and links (checked all 13 pages).
 - **SMTP EHLO name** is now the mailbox's domain instead of the container id (`lib/mail/connection.ts`, Oct 16). Typecheck passes; not yet rebuilt into the local Docker images (`sudo docker compose up -d --build`).
 - **Public address chosen:** `https://coldmailer.edufusionbd.online`. The domain's DNS is at **Cloudflare** (nameservers `lennon`/`laura.ns.cloudflare.com`), not Hostinger: add records there, as **DNS only**. `deploy/server.env` is ready for it. "coldmailer" appears in every email's unsubscribe link; a neutral subdomain would hide that. Decide before sending real campaigns, because the address must not change afterwards.
 
@@ -76,15 +83,17 @@ app/login, app/register login and sign-up
 app/api/                campaigns, campaign test, Google Sheets import, cron jobs, attachments, unsubscribe
 app/api/v1/             public API (JWT): auth/token, campaigns (+ messages), recipients (+ lookup), replies, senders
 app/t/, app/u/          open pixel and click redirect; public unsubscribe page
-app/actions/            server actions: auth, team, mailboxes, campaigns, replies, push, settings, api-tokens
+app/actions/            server actions: auth, team, mailboxes, campaigns, replies, push, settings
 components/             UI kit, app shell (nav), pagination, queue ETA, PWA bits
 lib/jobs/send.ts        send job: turns, limits, gaps, retries, error handling
 lib/jobs/inbox.ts       inbox job: IMAP reading per mailbox and folder
+lib/jobs/inbox-watch.ts instant reply check: IMAP IDLE per active mailbox, started by instrumentation.ts
+lib/timezones.ts        timezone dropdown options; lib/time-window.ts has the zone-aware time conversions
 lib/mail/               connection (SMTP/IMAP), compose (personal/newsletter), inbound (replies, bounces, opt-outs), errors, dns
 lib/queue-eta.ts        expected-send-time simulation
 lib/queries.ts          the 24-hour sent count (see the comment there: why "senders"."id" is written out)
 lib/db/schema.ts        all tables
-drizzle/                migrations 0000–0007 (+ meta)
+drizzle/                migrations 0000–0008 (+ meta)
 scripts/                db-sync.sh, migrate.mjs, cron.mjs, generate-keys.mjs, backup.sh
 deploy/                 Caddyfile, server.env (server secrets; private, not in git or images)
 tools/test-env/         throwaway Postgres/SMTP/IMAP servers for testing (see its README)
@@ -107,6 +116,7 @@ public/                 sw.js (push + offline), offline.html, icons/, brand/
   | `0005` | Pagination indexes |
   | `0006` | Email style and opt-out line |
   | `0007` | `messages.scheduled_at` (set send times) and `senders.rest_until` |
+  | `0008` | Push delivery health per device (`last_sent_at`, `last_received_at`, `last_error`, `last_error_at`) |
 
 - **Process:** change `lib/db/schema.ts`, then either:
   - run `docker compose up --build`, where the `migrate` container generates the migration file into `drizzle/` and applies it; or
@@ -198,7 +208,7 @@ Pages were checked in the browser pane at desktop and phone width.
 
 - **Real deliverability:** Gmail Primary placement with the Personal style. On Oct 16 a test to the user's Gmail **landed in spam**. Cause found: the `hostingermail-a/b/c._domainkey` DKIM CNAMEs exist in Cloudflare but were **Proxied**, so they resolve to Cloudflare IPs and Gmail can't read the key. The user switched them to **DNS only** the same day; Google's public DNS returned the key right after. Not yet confirmed with a new test in Gmail's "Show original". SPF is fine; DMARC is `p=none`.
 - **Real servers:** AWS EC2, Google Cloud or Oracle; Caddy HTTPS with a real certificate; the backup script on a server.
-- **Phones:** push notifications on a real phone; PWA install on iPhone/Android.
+- **Phones:** push notifications on a real phone (the user's phone PWA receives none as of Oct 17; see "Oct 17 changes"); PWA install on iPhone/Android.
 - **Real mailbox, Oct 16:** the local database had only one reply (Oct 15) and the Hostinger INBOX position was still UID 4, so no newer email had reached that INBOX by then. A read-only listing of the real inbox (sender, subject, thread headers) wasn't run because sudo timed out.
 - **Local Docker rebuilt Oct 16** with the reply-notification changes; a manual inbox run there reported no new emails of any kind in the Hostinger INBOX. Real push delivery to the user's Chrome is still to be seen with a live reply.
 - **Imports:** a real shared Google Sheet (only the error paths were tested).

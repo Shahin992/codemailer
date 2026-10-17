@@ -2,6 +2,7 @@
 
 import { and, eq, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { requireSession } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { campaigns, messages } from "@/lib/db/schema";
@@ -76,4 +77,12 @@ export async function retryFailed(id: string) {
     }
   });
   refresh(id);
+}
+
+/** Throw away a campaign whose list upload didn't finish. Only drafts: nothing of theirs was ever sent. */
+export async function discardDraftCampaign(id: string, returnTo?: string) {
+  await requireSession();
+  await db.delete(campaigns).where(and(eq(campaigns.id, id), eq(campaigns.status, "draft")));
+  revalidatePath("/campaigns");
+  if (returnTo) redirect(returnTo);
 }

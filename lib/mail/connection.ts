@@ -66,9 +66,10 @@ export async function sendRawEmail(cfg: MailboxConfig, envelope: { from: string;
   }
 }
 
-export async function withImap<T>(cfg: MailboxConfig, fn: (client: ImapFlow) => Promise<T>): Promise<T> {
+/** An IMAP client for the mailbox (not connected yet). `extra` overrides the defaults. */
+export function createImap(cfg: MailboxConfig, extra: Partial<ConstructorParameters<typeof ImapFlow>[0]> = {}): ImapFlow {
   if (!cfg.imap) throw new Error(`${cfg.email} is send-only; it has no inbox to read.`);
-  const client = new ImapFlow({
+  return new ImapFlow({
     host: cfg.imap.host,
     port: cfg.imap.port,
     secure: cfg.imap.security === "ssl",
@@ -78,7 +79,12 @@ export async function withImap<T>(cfg: MailboxConfig, fn: (client: ImapFlow) => 
     connectionTimeout: 20_000,
     greetingTimeout: 15_000,
     socketTimeout: 120_000,
+    ...extra,
   });
+}
+
+export async function withImap<T>(cfg: MailboxConfig, fn: (client: ImapFlow) => Promise<T>): Promise<T> {
+  const client = createImap(cfg);
   await client.connect();
   try {
     return await fn(client);

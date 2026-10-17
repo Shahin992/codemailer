@@ -61,10 +61,11 @@ export function SubmitButton({
   );
 }
 
-function formatDate(date: Date, mode: "datetime" | "relative" | "date") {
-  if (mode === "date") return date.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+function formatDate(date: Date, mode: "datetime" | "relative" | "date", timeZone?: string) {
+  if (mode === "date") return date.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric", timeZone });
   if (mode === "datetime") {
-    return date.toLocaleString(undefined, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+    // With a timezone the zone's short name is added ("20 Oct, 9:00 AM MST"), so it's clear whose clock it is.
+    return date.toLocaleString(undefined, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", ...(timeZone ? { timeZone, timeZoneName: "short" } : {}) });
   }
   const diff = (Date.now() - date.getTime()) / 1000;
   const abs = Math.abs(diff);
@@ -77,18 +78,26 @@ function formatDate(date: Date, mode: "datetime" | "relative" | "date") {
   return date.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 }
 
-/** Shows a time in the viewer's own timezone (the server doesn't know it). */
-export function Time({ value, mode = "datetime" }: { value: Date | string | null | undefined; mode?: "datetime" | "relative" | "date" }) {
+/** Shows a time in the viewer's own timezone (the server doesn't know it), or in `timeZone` when given (a campaign's). */
+export function Time({
+  value,
+  mode = "datetime",
+  timeZone,
+}: {
+  value: Date | string | null | undefined;
+  mode?: "datetime" | "relative" | "date";
+  timeZone?: string;
+}) {
   const [text, setText] = useState<string | null>(null);
   const iso = value ? new Date(value).toISOString() : null;
   useEffect(() => {
     if (!iso) return;
-    const update = () => setText(formatDate(new Date(iso), mode));
+    const update = () => setText(formatDate(new Date(iso), mode, timeZone));
     update();
     if (mode !== "relative") return;
     const timer = setInterval(update, 30_000);
     return () => clearInterval(timer);
-  }, [iso, mode]);
+  }, [iso, mode, timeZone]);
   if (!iso) return <span className="text-muted">—</span>;
   return (
     <time dateTime={iso} title={iso}>

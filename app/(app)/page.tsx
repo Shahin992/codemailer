@@ -62,11 +62,8 @@ export default async function DashboardPage() {
         )}
         {cronDown && (
           <Alert tone="warning" title="Background jobs are not running">
-            Nothing sends and replies aren't checked until cron runs. See{" "}
-            <Link href="/settings" className="underline">
-              Settings
-            </Link>
-            .
+            Nothing sends and replies aren't checked until the cron runner is running again (on the server:{" "}
+            <code>docker compose restart cron</code>).
           </Alert>
         )}
         {problems.map(({ sender }) => (

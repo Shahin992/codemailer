@@ -8,6 +8,7 @@ const PUBLIC_PATHS = [
   /^\/api\/v1\//,
   /^\/api\/cron\//,
   /^\/api\/unsubscribe\//,
+  /^\/api\/push\/received$/, // a phone confirming a notification arrived; proven by its subscription endpoint
   /^\/u\//,
   /^\/t\//,
   /^\/offline\.html$/,

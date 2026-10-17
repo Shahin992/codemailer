@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { and, desc, eq, gt, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 import { convert as htmlToText } from "html-to-text";
 import { simpleParser, type ParsedMail } from "mailparser";
 import { db } from "@/lib/db";
@@ -155,7 +155,12 @@ export async function processInbound(sender: Sender, source: Buffer, folder: str
   const optedOut = isOptOutReply(extractReplyText(bodyText));
   if (optedOut) await handleUnsubscribeEmail(from.email);
 
+  const [unread] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(replies)
+    .where(and(isNull(replies.readAt), eq(replies.isAutoReply, false)));
   await sendPushToAll({
+    unread: unread?.n,
     title: optedOut ? `${from.name || from.email} opted out` : `Reply from ${from.name || from.email}`,
     body: optedOut
       ? `“${snippet(extractReplyText(bodyText), 60)}”. Added to the do-not-send list.`

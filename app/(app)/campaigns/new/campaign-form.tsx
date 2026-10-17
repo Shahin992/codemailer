@@ -4,7 +4,9 @@ import { ChevronLeft, ChevronRight, Eye, FileSpreadsheet, Keyboard, RotateCcw, S
 import Papa from "papaparse";
 import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState } from "react";
-import { Alert, Badge, Button, Card, CardHeader, Checkbox, Field, Input, Select, Textarea, cn } from "@/components/ui";
+import { discardDraftCampaign } from "@/app/actions/campaigns";
+import { Alert, Badge, Button, Card, CardHeader, Checkbox, Field, Input, Progress, Select, Textarea, cn } from "@/components/ui";
+import { emailPreviewDoc } from "@/lib/email-preview";
 import { buildVars, fillFields, textToHtml } from "@/lib/merge";
 import { PROVIDER_PRESETS } from "@/lib/providers";
 import {
@@ -14,7 +16,9 @@ import {
   rowsToRecipients,
   type ParsedRecipient,
 } from "@/lib/recipients-parse";
-import { estimateSendingDays, toLocalInputValue, windowMinutes, type SendWindow } from "@/lib/time-window";
+import { estimateSendingDays, toZonedInputValue, windowMinutes, zonedInputToDate, type SendWindow } from "@/lib/time-window";
+import { timezoneName, type TimezoneGroup } from "@/lib/timezones";
+import { TimezoneSelect } from "@/components/timezone-select";
 import type { Provider } from "@/lib/db/schema";
 
 export type SenderOption = {
@@ -42,6 +46,52 @@ type CsvState = { fileName: string; fields: string[]; rows: Record<string, strin
 
 const TIMES_PER_PAGE = 20;
 const DAY_MS = 24 * 60 * 60_000;
+const MAX_CSV_BYTES = 50 * 1024 * 1024;
+const MAX_RECIPIENTS = 200_000;
+// Big lists are uploaded in parts this size, so no single request is large (the server reads at most 10 MB of one).
+const UPLOAD_PART = 5_000;
+
+/** Read a CSV file. Files over 1 MB are parsed in a background worker so the page doesn't freeze. */
+function parseCsvFile(file: File): Promise<{ fields: string[]; rows: Record<string, string>[] }> {
+  return new Promise((resolve, reject) => {
+    Papa.parse<Record<string, string>>(file, {
+      header: true,
+      skipEmptyLines: "greedy",
+      worker: file.size > 1024 * 1024,
+      complete: (result) => {
+        // Headers are trimmed here: a worker can't be given a transformHeader function.
+        const raw = result.meta.fields ?? [];
+        const fields = raw.map((f) => f.trim());
+        const rows = fields.every((f, i) => f === raw[i]) ? result.data : result.data.map((row) => Object.fromEntries(raw.map((f, i) => [fields[i], row[f]])));
+        resolve({ fields: fields.filter(Boolean), rows });
+      },
+      error: (err) => reject(err),
+    });
+  });
+}
+
+async function postJson<T>(url: string, data: unknown): Promise<T> {
+  // A dropped connection or a busy server gets two more tries; a part is never saved twice.
+  for (let attempt = 1; ; attempt++) {
+    let res: Response;
+    try {
+      res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
+    } catch (err) {
+      if (attempt < 3) {
+        await new Promise((r) => setTimeout(r, 2_000 * attempt));
+        continue;
+      }
+      throw err;
+    }
+    const json = await res.json().catch(() => ({}));
+    if (res.ok) return json as T;
+    if (res.status >= 500 && attempt < 3) {
+      await new Promise((r) => setTimeout(r, 2_000 * attempt));
+      continue;
+    }
+    throw new Error(json.error ?? `The upload failed (${res.status}).`);
+  }
+}
 
 /** Most send times that fall inside any 24-hour stretch (times sorted ascending). */
 function busiest24h(sorted: number[]): number {
@@ -51,28 +101,6 @@ function busiest24h(sorted: number[]): number {
     most = Math.max(most, hi - lo + 1);
   }
   return most;
-}
-
-const COMMON_ZONES = [
-  "America/New_York",
-  "America/Chicago",
-  "America/Denver",
-  "America/Los_Angeles",
-  "Europe/London",
-  "Europe/Berlin",
-  "Asia/Dhaka",
-  "Asia/Kolkata",
-  "Asia/Dubai",
-  "Asia/Singapore",
-  "Australia/Sydney",
-];
-
-function allZones(): string[] {
-  try {
-    return (Intl as unknown as { supportedValuesOf: (k: string) => string[] }).supportedValuesOf("timeZone");
-  } catch {
-    return COMMON_ZONES;
-  }
 }
 
 function Section({ step, title, description, children }: { step: number; title: string; description?: string; children: React.ReactNode }) {
@@ -97,11 +125,13 @@ export function CampaignForm({
   followUp,
   testEmail,
   defaults,
+  zones,
 }: {
   senders: SenderOption[];
   followUp: FollowUpInfo | null;
   testEmail: string;
   defaults: SendWindow;
+  zones: TimezoneGroup[];
 }) {
   const router = useRouter();
   const [name, setName] = useState(followUp ? `${followUp.name} – follow-up` : "");
@@ -109,6 +139,7 @@ export function CampaignForm({
   const [typed, setTyped] = useState("");
   const [csv, setCsv] = useState<CsvState | null>(null);
   const [csvError, setCsvError] = useState<string | null>(null);
+  const [csvReading, setCsvReading] = useState<string | null>(null); // file name while it's being read
   const [sheetUrl, setSheetUrl] = useState("");
   const [sheetLoading, setSheetLoading] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(() => new Set(senders.filter((s) => s.status === "active").map((s) => s.id)));
@@ -118,15 +149,16 @@ export function CampaignForm({
   const [win, setWin] = useState<SendWindow>(followUp?.window ?? defaults);
   // "auto": spaced out inside the send window. "manual": a set time for every email.
   const [timing, setTiming] = useState<"auto" | "manual">("auto");
-  const [firstAt, setFirstAt] = useState(""); // datetime-local value, your timezone
+  const [firstAt, setFirstAt] = useState(""); // datetime-local value, on the campaign timezone's clock
   const [everyMinutes, setEveryMinutes] = useState(10);
-  const [timeEdits, setTimeEdits] = useState<Map<string, string>>(new Map()); // email -> datetime-local
+  const [timeEdits, setTimeEdits] = useState<Map<string, string>>(new Map()); // email -> datetime-local, campaign timezone
   const [timesPage, setTimesPage] = useState(0);
   const [style, setStyle] = useState<"personal" | "newsletter">(followUp?.style ?? "personal");
   const [trackOpens, setTrackOpens] = useState(followUp?.trackOpens ?? false);
   const [trackClicks, setTrackClicks] = useState(followUp?.trackClicks ?? false);
   const [showPreview, setShowPreview] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [uploaded, setUploaded] = useState<{ done: number; total: number } | null>(null); // a big list going up in parts
   const [error, setError] = useState<string | null>(null);
   const [testTo, setTestTo] = useState(testEmail);
   const [testState, setTestState] = useState<{ ok: boolean; text: string } | null>(null);
@@ -135,7 +167,8 @@ export function CampaignForm({
   const subjectRef = useRef<HTMLInputElement>(null);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   const lastFocus = useRef<"subject" | "body">("body");
-  const zones = useMemo(allZones, []);
+  // Every time on this form (window, first email, each email) is on this timezone's clock.
+  const tz = win.timezone;
 
   const csvList = useMemo<ParsedRecipient[]>(
     () => (csv ? rowsToRecipients(csv.fields, csv.rows, csv.emailColumn) : []),
@@ -162,9 +195,20 @@ export function CampaignForm({
   }
 
   const autoGap = chosen.length && capacity ? Math.max(2, Math.round(windowMinutes(win.windowStart, win.windowEnd) / (capacity / chosen.length))) : 10;
-  const firstMs = firstAt ? new Date(firstAt).getTime() : NaN;
-  const plannedTime = (index: number, email?: string): string =>
-    (email && timeEdits.get(email)) || (Number.isFinite(firstMs) ? toLocalInputValue(new Date(firstMs + index * everyMinutes * 60_000)) : "");
+  const toMs = (value: string) => zonedInputToDate(value, tz)?.getTime() ?? NaN;
+  const firstMs = toMs(firstAt);
+  // When email `index` goes out (ms). Worked out as a number, so 100,000 rows stay quick; only the rows on screen become text.
+  const plannedMs = (index: number, email?: string): number => {
+    const edited = email ? timeEdits.get(email) : undefined;
+    if (edited) return toMs(edited);
+    return Number.isFinite(firstMs) ? firstMs + index * everyMinutes * 60_000 : NaN;
+  };
+  const plannedTime = (index: number, email?: string): string => {
+    const edited = email ? timeEdits.get(email) : undefined;
+    if (edited) return edited;
+    const ms = plannedMs(index);
+    return Number.isFinite(ms) ? toZonedInputValue(new Date(ms), tz) : "";
+  };
   const followUpCapacity = followUp
     ? senders.filter((s) => followUp.mailboxes.includes(s.email) && s.status === "active").reduce((sum, s) => sum + s.dailyLimit, 0)
     : 0;
@@ -174,8 +218,7 @@ export function CampaignForm({
     const times: number[] = [];
     let missing = -1;
     for (let i = 0; i < count; i++) {
-      const value = plannedTime(i, followUp ? undefined : check.valid[i].email);
-      const ms = value ? new Date(value).getTime() : NaN;
+      const ms = plannedMs(i, followUp ? undefined : check.valid[i].email);
       if (!Number.isFinite(ms)) {
         if (missing < 0) missing = i;
         continue;
@@ -191,13 +234,13 @@ export function CampaignForm({
       past: times.filter((t) => t < now).length,
       busiest: busiest24h(times),
     };
-  }, [timing, followUp, check.valid, timeEdits, firstMs, everyMinutes]); // everything plannedTime reads
+  }, [timing, followUp, check.valid, timeEdits, firstMs, everyMinutes, tz]); // everything plannedMs reads
 
   function chooseSetTimes() {
     setTiming("manual");
     // Start 10 minutes from now (rounded up to 5), spaced like the automatic timing.
-    if (!firstAt || new Date(firstAt).getTime() < Date.now()) {
-      setFirstAt(toLocalInputValue(new Date(Math.ceil((Date.now() + 10 * 60_000) / 300_000) * 300_000)));
+    if (!firstAt || !(toMs(firstAt) >= Date.now())) {
+      setFirstAt(toZonedInputValue(new Date(Math.ceil((Date.now() + 10 * 60_000) / 300_000) * 300_000), tz));
       setEveryMinutes(autoGap);
     }
   }
@@ -239,20 +282,26 @@ export function CampaignForm({
     setCsv({ fileName: label, fields: fieldsFound, rows, emailColumn });
   }
 
-  function onCsv(file: File | undefined) {
+  async function onCsv(file: File | undefined) {
     setCsvError(null);
     if (!file) return;
     if (/\.(xlsx?|numbers)$/i.test(file.name)) {
       setCsvError("Excel files aren't supported directly. In Excel use File → Save As → CSV, or paste a Google Sheets link.");
       return;
     }
-    Papa.parse<Record<string, string>>(file, {
-      header: true,
-      skipEmptyLines: "greedy",
-      transformHeader: (h) => h.trim(),
-      complete: (result) => applyRows(file.name, (result.meta.fields ?? []).filter(Boolean), result.data),
-      error: (err) => setCsvError(err.message),
-    });
+    if (file.size > MAX_CSV_BYTES) {
+      setCsvError(`This file is ${(file.size / 1024 / 1024).toFixed(1)} MB; files can be up to 50 MB. Remove columns you don't need, or split the list into two campaigns.`);
+      return;
+    }
+    setCsvReading(file.name);
+    try {
+      const { fields: found, rows } = await parseCsvFile(file);
+      applyRows(file.name, found, rows);
+    } catch (err) {
+      setCsvError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCsvReading(null);
+    }
   }
 
   async function importSheet() {
@@ -287,9 +336,9 @@ export function CampaignForm({
       recipients: followUp
         ? undefined
         : manual
-          ? check.valid.map((r, i) => ({ ...r, sendAt: new Date(plannedTime(i, r.email)).toISOString() }))
+          ? check.valid.map((r, i) => ({ ...r, sendAt: new Date(plannedMs(i, r.email)).toISOString() }))
           : check.valid,
-      schedule: manual && followUp ? { startAt: new Date(firstAt).toISOString(), everyMinutes } : undefined,
+      schedule: manual && followUp ? { startAt: new Date(firstMs).toISOString(), everyMinutes } : undefined,
       followUpOf: followUp?.id ?? null,
       style,
       trackOpens: style === "newsletter" && trackOpens,
@@ -308,21 +357,47 @@ export function CampaignForm({
     if (manualCheck && manualCheck.missing >= 0) {
       return setError(followUp ? "Pick the time of the first email." : `Pick a send time for every email (number ${manualCheck.missing + 1} has none).`);
     }
+    if (!followUp && check.valid.length > MAX_RECIPIENTS) {
+      return setError(`Up to ${MAX_RECIPIENTS.toLocaleString()} recipients per campaign; this list has ${check.valid.length.toLocaleString()}. Split it into two campaigns.`);
+    }
     setSubmitting(true);
+    type Created = { campaignId: string; accepted: number; duplicates: number; rejected: unknown[] };
+    type Part = { duplicates: number; skipped: number; total: number };
+    let draftId: string | null = null;
     try {
-      const res = await fetch("/api/campaigns", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload()),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not create the campaign");
-      const skipped = (data.rejected?.length ?? 0) + (data.duplicates ?? 0);
-      router.push(`/campaigns/${data.campaignId}?created=${data.accepted}&skipped=${skipped}`);
+      const data = payload();
+      const list = data.recipients ?? [];
+      let created: Created;
+      let total: number;
+      let skipped: number;
+      if (list.length <= UPLOAD_PART) {
+        created = await postJson<Created>("/api/campaigns", data);
+        total = created.accepted;
+        skipped = created.rejected.length + created.duplicates;
+      } else {
+        // A big list: create the campaign as a draft with the first part, add the rest part by part, and the last part starts it.
+        setUploaded({ done: 0, total: list.length });
+        created = await postJson<Created>("/api/campaigns", { ...data, recipients: list.slice(0, UPLOAD_PART), draft: true });
+        draftId = created.campaignId;
+        total = created.accepted;
+        skipped = created.rejected.length + created.duplicates;
+        setUploaded({ done: UPLOAD_PART, total: list.length });
+        for (let i = UPLOAD_PART; i < list.length; i += UPLOAD_PART) {
+          const end = Math.min(i + UPLOAD_PART, list.length);
+          const part = await postJson<Part>(`/api/campaigns/${draftId}/recipients`, { recipients: list.slice(i, end), done: end === list.length });
+          total = part.total;
+          skipped += part.skipped + part.duplicates;
+          setUploaded({ done: end, total: list.length });
+        }
+      }
+      router.push(`/campaigns/${created.campaignId}?created=${total}&skipped=${skipped}`);
       router.refresh();
     } catch (err) {
+      // Nothing from an unfinished upload is ever sent; remove it so it doesn't linger.
+      if (draftId) await discardDraftCampaign(draftId).catch(() => {});
       setError(err instanceof Error ? err.message : String(err));
       setSubmitting(false);
+      setUploaded(null);
     }
   }
 
@@ -359,13 +434,15 @@ export function CampaignForm({
   const shownPage = Math.min(timesPage, timesPages - 1);
   const timesFrom = shownPage * TIMES_PER_PAGE;
   const when = (ms: number | undefined) =>
-    ms === undefined ? "—" : new Date(ms).toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+    ms === undefined
+      ? "—"
+      : new Date(ms).toLocaleString(undefined, { timeZone: tz, weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit", timeZoneName: "short" });
 
   // Only rendered after "Set the times myself" is clicked, so reading the browser's timezone and clock is safe here.
   const manualTimesPanel = timing === "manual" && (
     <div className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="First email at" htmlFor="firstAt" hint={`In your timezone (${Intl.DateTimeFormat().resolvedOptions().timeZone}).`}>
+        <Field label="First email at" htmlFor="firstAt" hint={`${timezoneName(tz)} time.`}>
           <Input id="firstAt" type="datetime-local" value={firstAt} onChange={(e) => setFirstAt(e.target.value)} required />
         </Field>
         <Field label="Then one every" htmlFor="everyMinutes" hint="Minutes between emails. 0 sends them all at once, which looks like bulk mail.">
@@ -532,8 +609,10 @@ export function CampaignForm({
               <div className="space-y-3">
                 <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed px-4 py-8 text-center hover:bg-neutral-soft">
                   <Upload className="size-6 text-muted" />
-                  <span className="text-sm font-medium">{csv ? csv.fileName : "Choose a CSV file"}</span>
-                  <span className="text-xs text-muted">Needs an “email” column. Other columns (name, company…) become merge fields.</span>
+                  <span className="text-sm font-medium">{csvReading ? `Reading ${csvReading}…` : csv ? csv.fileName : "Choose a CSV file"}</span>
+                  <span className="text-xs text-muted">
+                    Up to 50 MB and {MAX_RECIPIENTS.toLocaleString()} people. Needs an “email” column; other columns (name, company…) become merge fields.
+                  </span>
                   <input type="file" accept=".csv,text/csv,.xlsx,.xls" className="sr-only" onChange={(e) => onCsv(e.target.files?.[0])} />
                 </label>
                 <div className="flex items-center gap-3 text-xs text-muted">
@@ -600,7 +679,8 @@ export function CampaignForm({
             )}
 
             <div className="flex flex-wrap gap-2 text-sm">
-              <Badge tone="success">{check.valid.length} ready</Badge>
+              <Badge tone={check.valid.length > MAX_RECIPIENTS ? "danger" : "success"}>{check.valid.length.toLocaleString()} ready</Badge>
+              {check.valid.length > MAX_RECIPIENTS && <Badge tone="danger">over the {MAX_RECIPIENTS.toLocaleString()} limit</Badge>}
               {check.invalid.length > 0 && <Badge tone="danger">{check.invalid.length} invalid</Badge>}
               {check.duplicates > 0 && <Badge tone="warning">{check.duplicates} duplicates removed</Badge>}
               {tab === "type" && csv && <Badge>includes {csv.rows.length} from CSV</Badge>}
@@ -766,7 +846,7 @@ export function CampaignForm({
               title="Email preview"
               sandbox=""
               className="h-80 w-full bg-white"
-              srcDoc={`<!doctype html><html><body style="font-family:Arial,sans-serif;font-size:14px;line-height:1.5;color:#222;margin:16px">${previewHtml}</body></html>`}
+              srcDoc={emailPreviewDoc(previewHtml)}
             />
           </div>
         )}
@@ -781,6 +861,13 @@ export function CampaignForm({
             : "Each email goes out at the time you set, inside or outside the send window. Mailbox daily limits still apply."
         }
       >
+        <Field
+          label="Timezone"
+          htmlFor="timezone"
+          hint="Use your recipients' timezone. The send window and any times you set follow this clock: 9:00 in Arizona time goes out at 9:00 in Arizona."
+        >
+          <TimezoneSelect id="timezone" groups={zones} value={win.timezone} onChange={(timezone) => setWin({ ...win, timezone })} />
+        </Field>
         <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Timing">
           {(
             [
@@ -808,22 +895,14 @@ export function CampaignForm({
           manualTimesPanel
         ) : (
           <>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <Field label="Start" htmlFor="windowStart">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+              <Field label="Window start" htmlFor="windowStart">
                 <Input id="windowStart" type="time" value={win.windowStart} onChange={(e) => setWin({ ...win, windowStart: e.target.value })} required />
               </Field>
-              <Field label="End" htmlFor="windowEnd">
+              <Field label="Window end" htmlFor="windowEnd">
                 <Input id="windowEnd" type="time" value={win.windowEnd} onChange={(e) => setWin({ ...win, windowEnd: e.target.value })} required />
               </Field>
-              <Field label="Recipients' timezone" htmlFor="timezone">
-                <Input id="timezone" list="timezones" value={win.timezone} onChange={(e) => setWin({ ...win, timezone: e.target.value })} required />
-                <datalist id="timezones">
-                  {zones.map((z) => (
-                    <option key={z} value={z} />
-                  ))}
-                </datalist>
-              </Field>
-              <div className="flex items-end pb-1">
+              <div className="col-span-2 flex items-end pb-1 sm:col-span-1">
                 <Checkbox label="Weekdays only" checked={win.weekdaysOnly} onChange={(e) => setWin({ ...win, weekdaysOnly: e.target.checked })} />
               </div>
             </div>
@@ -831,7 +910,8 @@ export function CampaignForm({
               {total > 0 && capacity > 0 ? (
                 <>
                   {total} emails at up to {capacity} a day: about <strong>{days} sending day{days === 1 ? "" : "s"}</strong>
-                  {win.weekdaysOnly ? " (weekdays)" : ""}. Each mailbox sends {gapText}, with a little random variation.
+                  {win.weekdaysOnly ? " (weekdays)" : ""}. Each mailbox sends {gapText} between {win.windowStart} and {win.windowEnd} {timezoneName(tz)} time,
+                  with a little random variation.
                 </>
               ) : (
                 "Add recipients and choose mailboxes to see how long this will take."
@@ -890,13 +970,28 @@ export function CampaignForm({
       </Card>
 
       {error && <Alert tone="danger">{error}</Alert>}
+      {uploaded && (
+        <Card className="space-y-2 p-4">
+          <p className="text-sm">
+            Uploading recipients: <span className="font-medium tabular-nums">{uploaded.done.toLocaleString()}</span> of{" "}
+            <span className="tabular-nums">{uploaded.total.toLocaleString()}</span>. Keep this page open; nothing is sent until the whole list is in.
+          </p>
+          <Progress value={uploaded.done} max={uploaded.total} />
+        </Card>
+      )}
 
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
         <Button type="button" variant="ghost" onClick={() => router.back()}>
           Cancel
         </Button>
         <Button type="submit" disabled={submitting}>
-          {submitting ? "Creating…" : followUp ? `Start follow-up (${total})` : `Start campaign${total ? ` (${total})` : ""}`}
+          {submitting
+            ? uploaded
+              ? `Uploading… ${Math.floor((uploaded.done / uploaded.total) * 100)}%`
+              : "Creating…"
+            : followUp
+              ? `Start follow-up (${total.toLocaleString()})`
+              : `Start campaign${total ? ` (${total.toLocaleString()})` : ""}`}
         </Button>
       </div>
     </form>

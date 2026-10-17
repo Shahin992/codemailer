@@ -191,6 +191,7 @@ async function RecipientDetail({ email, search }: { email: string; search: Searc
       campaignId: campaigns.id,
       campaignName: campaigns.name,
       campaignStatus: campaigns.status,
+      campaignTimezone: campaigns.timezone,
       mailbox: senders.email,
     })
     .from(messages)
@@ -248,7 +249,7 @@ async function RecipientDetail({ email, search }: { email: string; search: Searc
         {sendJob && !sendJob.healthy && (
           <div className="mt-3">
             <Alert tone="warning" title="Background jobs aren't running">
-              Queued emails won't go out until the cron runner is running again. See Settings → Background jobs.
+              Queued emails won't go out until the cron runner is running again.
             </Alert>
           </div>
         )}
@@ -278,7 +279,13 @@ async function RecipientDetail({ email, search }: { email: string; search: Searc
                 <p className="truncate text-sm">{m.subject ?? "Not sent yet"}</p>
                 <p className="text-xs break-all text-muted">
                   {m.mailbox ? `from ${m.mailbox}` : "mailbox chosen when it sends"} ·{" "}
-                  {m.sentAt ? <Time value={m.sentAt} /> : m.status === "queued" ? <QueueEta estimate={etas.get(m.id)} /> : "not sent"}
+                  {m.sentAt ? (
+                    <Time value={m.sentAt} timeZone={m.campaignTimezone} />
+                  ) : m.status === "queued" ? (
+                    <QueueEta estimate={etas.get(m.id)} timeZone={m.campaignTimezone} />
+                  ) : (
+                    "not sent"
+                  )}
                   {(m.openCount > 0 || m.clickCount > 0) && ` · ${m.openCount} opens · ${m.clickCount} clicks`}
                 </p>
                 {m.status === "queued" && (m.campaignStatus === "active" || m.campaignStatus === "paused") && (
@@ -286,6 +293,7 @@ async function RecipientDetail({ email, search }: { email: string; search: Searc
                     messageId={m.id}
                     current={(m.scheduledAt ?? estimateTime(etas.get(m.id)))?.toISOString() ?? null}
                     isSet={Boolean(m.scheduledAt)}
+                    timeZone={m.campaignTimezone}
                   />
                 )}
                 {m.error && m.status !== "sent" && <p className="text-xs break-words text-danger">{m.error}</p>}

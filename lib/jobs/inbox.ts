@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { senders, type ImapState, type Sender } from "@/lib/db/schema";
 import { configFromSender, withImap } from "@/lib/mail/connection";
@@ -61,8 +61,12 @@ async function checkMailbox(sender: Sender, counts: Counts) {
     .where(eq(senders.id, sender.id));
 }
 
-export async function runInboxJob(): Promise<string> {
-  const list = await db.select().from(senders).where(eq(senders.readInbox, true)); // send-only mailboxes have no inbox
+/** Check every mailbox's inbox, or only one (when the inbox watcher saw new mail arrive there). */
+export async function runInboxJob(onlySenderId?: string): Promise<string> {
+  const list = await db
+    .select()
+    .from(senders)
+    .where(and(eq(senders.readInbox, true), onlySenderId ? eq(senders.id, onlySenderId) : undefined)); // send-only mailboxes have no inbox
   const counts: Counts = { reply: 0, auto_reply: 0, bounce: 0, unsubscribe: 0, ignored: 0, duplicate: 0 };
   let errors = 0;
 

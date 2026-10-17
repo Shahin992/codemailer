@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { LiveUpdates } from "@/components/live-updates";
+import { PushSync } from "@/components/push-sync";
 import { cn } from "@/components/ui";
 import { APP_NAME_PARTS } from "@/lib/brand";
 
@@ -40,11 +41,13 @@ export function AppShell({
   unreadReplies,
   signOut,
   user,
+  vapidPublicKey,
 }: {
   children: ReactNode;
   unreadReplies: number;
   signOut: () => Promise<void>;
   user: { name: string; email: string };
+  vapidPublicKey: string;
 }) {
   const pathname = usePathname();
   const [moreOpen, setMoreOpen] = useState(false);
@@ -109,7 +112,7 @@ export function AppShell({
         </div>
       </header>
 
-      <main className="min-w-0 flex-1 px-4 pt-5 pb-28 md:px-8 md:pt-8 md:pb-10">
+      <main className="min-w-0 flex-1 overflow-x-clip px-4 pt-5 pb-28 md:px-8 md:pt-8 md:pb-10">
         <div className="mx-auto w-full max-w-6xl">{children}</div>
       </main>
 
@@ -145,6 +148,7 @@ export function AppShell({
       </nav>
 
       <LiveUpdates />
+      <PushSync vapidPublicKey={vapidPublicKey} unread={unreadReplies} />
 
       {/* "More" sheet: phones */}
       {moreOpen && (

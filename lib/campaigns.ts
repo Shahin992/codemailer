@@ -105,9 +105,9 @@ function toParsed(list: NonNullable<CampaignInput["recipients"]>): ParsedRecipie
  * Send time for the email at position `index`: the recipient's own time, else the schedule's
  * start plus `index` gaps, else null (automatic).
  */
-function sendTimes(input: CampaignInput) {
-  const start = input.schedule ? Date.parse(input.schedule.startAt) : null;
-  const every = (input.schedule?.everyMinutes ?? 0) * 60_000;
+function sendTimes(schedule: CampaignInput["schedule"]) {
+  const start = schedule ? Date.parse(schedule.startAt) : null;
+  const every = (schedule?.everyMinutes ?? 0) * 60_000;
   return (index: number, own?: string): Date | null => {
     const at = own ? new Date(own) : start === null ? null : new Date(start + index * every);
     if (at && at.getTime() - Date.now() > MAX_AHEAD_MS) throw new CampaignError("Send times can be at most a year ahead");
@@ -125,7 +125,84 @@ async function suppressedSet(emails: string[]): Promise<Set<string>> {
   return found;
 }
 
-export async function createCampaign(input: CampaignInput, source: "ui" | "api", createdBy?: string): Promise<CreateCampaignResult> {
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+type Rejected = CreateCampaignResult["rejected"];
+
+/** The valid, not-blocked people in a list, and who was left out. */
+async function screenRecipients(list: NonNullable<CampaignInput["recipients"]>) {
+  const { valid, invalid, duplicates } = checkRecipients(toParsed(list));
+  const blocked = await suppressedSet(valid.map((r) => r.email));
+  const accepted = valid.filter((r) => !blocked.has(r.email));
+  const rejected: Rejected = [
+    ...invalid.map((email) => ({ email, reason: "invalid" as const })),
+    ...valid.filter((r) => blocked.has(r.email)).map((r) => ({ email: r.email, reason: "do_not_send" as const })),
+  ];
+  return { accepted, rejected, duplicates };
+}
+
+/**
+ * Save the people and queue one email each. With `skipExisting`, anyone who already has an email in this
+ * campaign is left out (a list uploaded in batches). Returns how many emails were queued.
+ */
+async function queueRecipients(
+  tx: Tx,
+  campaignId: string,
+  people: ParsedRecipient[],
+  times: (Date | null)[],
+  chosenIds: Set<string>,
+  skipExisting: boolean,
+): Promise<number> {
+  let queued = 0;
+  for (let i = 0; i < people.length; i += 1000) {
+    const chunk = people.slice(i, i + 1000);
+    const saved = await tx
+      .insert(recipients)
+      .values(chunk.map((r) => ({ email: r.email, name: r.name ?? null })))
+      .onConflictDoUpdate({
+        target: recipients.email,
+        set: { name: sql`coalesce(excluded.name, ${recipients.name})` },
+      })
+      .returning({ id: recipients.id, email: recipients.email, senderId: recipients.senderId });
+    const byEmail = new Map(saved.map((p) => [p.email, p]));
+    const already = skipExisting
+      ? new Set(
+          (
+            await tx
+              .select({ id: messages.recipientId })
+              .from(messages)
+              .where(and(eq(messages.campaignId, campaignId), inArray(messages.recipientId, saved.map((p) => p.id))))
+          ).map((m) => m.id),
+        )
+      : new Set<string>();
+    const rows = chunk
+      .map((r, j) => {
+        const person = byEmail.get(r.email)!;
+        return {
+          campaignId,
+          recipientId: person.id,
+          // Someone already emailed by one of the chosen mailboxes keeps that mailbox.
+          senderId: person.senderId && chosenIds.has(person.senderId) ? person.senderId : null,
+          vars: { ...(r.vars ?? {}), ...(r.name ? { name: r.name } : {}) },
+          scheduledAt: times[i + j],
+        };
+      })
+      .filter((row) => !already.has(row.recipientId));
+    if (rows.length) await tx.insert(messages).values(rows);
+    queued += rows.length;
+  }
+  return queued;
+}
+
+/**
+ * Create a campaign and queue its emails. With `draft`, the campaign waits (nothing sends) until the rest of
+ * a large list has been added with addCampaignRecipients(…, finish = true).
+ */
+export async function createCampaign(
+  input: CampaignInput,
+  source: "ui" | "api",
+  createdBy?: string,
+  { draft = false }: { draft?: boolean } = {},
+): Promise<CreateCampaignResult> {
   if (input.followUpOf) return createFollowUp(input, input.followUpOf, source, createdBy);
 
   const settings = await getSettings();
@@ -134,16 +211,9 @@ export async function createCampaign(input: CampaignInput, source: "ui" | "api",
   const body = resolveBody(input);
   const chosen = await resolveSenders(input);
 
-  const parsed = toParsed(input.recipients ?? []);
-  const { valid, invalid, duplicates } = checkRecipients(parsed);
-  const blocked = await suppressedSet(valid.map((r) => r.email));
-  const accepted = valid.filter((r) => !blocked.has(r.email));
-  const rejected: CreateCampaignResult["rejected"] = [
-    ...invalid.map((email) => ({ email, reason: "invalid" as const })),
-    ...valid.filter((r) => blocked.has(r.email)).map((r) => ({ email: r.email, reason: "do_not_send" as const })),
-  ];
-  if (!accepted.length) throw new CampaignError("No valid recipients to send to");
-  const timeFor = sendTimes(input);
+  const { accepted, rejected, duplicates } = await screenRecipients(input.recipients ?? []);
+  if (!accepted.length && !draft) throw new CampaignError("No valid recipients to send to");
+  const timeFor = sendTimes(input.schedule);
   const times = accepted.map((r, i) => timeFor(i, r.sendAt));
 
   const chosenIds = new Set(chosen.map((s) => s.id));
@@ -155,6 +225,7 @@ export async function createCampaign(input: CampaignInput, source: "ui" | "api",
         name: input.name,
         subject,
         ...body,
+        status: draft ? "draft" : "active",
         style: input.style ?? "personal",
         // Tracking needs HTML, which personal-style emails don't have.
         trackOpens: (input.style ?? "personal") === "newsletter" && (input.trackOpens ?? false),
@@ -169,37 +240,60 @@ export async function createCampaign(input: CampaignInput, source: "ui" | "api",
       })
       .returning({ id: campaigns.id });
     await tx.insert(campaignSenders).values(chosen.map((s) => ({ campaignId: campaign.id, senderId: s.id })));
-
-    for (let i = 0; i < accepted.length; i += 1000) {
-      const chunk = accepted.slice(i, i + 1000);
-      const people = await tx
-        .insert(recipients)
-        .values(chunk.map((r) => ({ email: r.email, name: r.name ?? null })))
-        .onConflictDoUpdate({
-          target: recipients.email,
-          set: { name: sql`coalesce(excluded.name, ${recipients.name})` },
-        })
-        .returning({ id: recipients.id, email: recipients.email, senderId: recipients.senderId });
-      const byEmail = new Map(people.map((p) => [p.email, p]));
-      await tx.insert(messages).values(
-        chunk.map((r, j) => {
-          const person = byEmail.get(r.email)!;
-          return {
-            campaignId: campaign.id,
-            recipientId: person.id,
-            // Someone already emailed by one of the chosen mailboxes keeps that mailbox.
-            senderId: person.senderId && chosenIds.has(person.senderId) ? person.senderId : null,
-            vars: { ...(r.vars ?? {}), ...(r.name ? { name: r.name } : {}) },
-            scheduledAt: times[i + j],
-          };
-        }),
-      );
-    }
+    await queueRecipients(tx, campaign.id, accepted, times, chosenIds, false);
     return campaign.id;
   });
 
   const capacity = chosen.filter((s) => s.status === "active").reduce((sum, s) => sum + s.dailyLimit, 0);
   return { campaignId, accepted: accepted.length, duplicates, rejected, estimatedDays: estimateSendingDays(accepted.length, capacity) };
+}
+
+export const MAX_RECIPIENTS = 200_000;
+
+export type AddRecipientsResult = { accepted: number; duplicates: number; skipped: number; total: number; estimatedDays?: number };
+
+/**
+ * Add the next part of a large list to a draft campaign. With `finish`, the campaign starts sending.
+ * People already in the campaign are skipped, so sending a part twice does no harm.
+ */
+export async function addCampaignRecipients(campaignId: string, list: NonNullable<CampaignInput["recipients"]>, finish: boolean): Promise<AddRecipientsResult> {
+  const [campaign] = await db.select().from(campaigns).where(eq(campaigns.id, campaignId));
+  if (!campaign || campaign.status !== "draft") throw new CampaignError("This campaign isn't waiting for more recipients.");
+  const { accepted, rejected, duplicates } = await screenRecipients(list);
+  if (campaign.totalRecipients + accepted.length > MAX_RECIPIENTS) throw new CampaignError(`Up to ${MAX_RECIPIENTS.toLocaleString("en-US")} recipients per campaign`);
+  const timeFor = sendTimes(undefined);
+  const times = accepted.map((r, i) => timeFor(i, r.sendAt));
+  const chosen = await db
+    .select({ id: senders.id, status: senders.status, dailyLimit: senders.dailyLimit })
+    .from(campaignSenders)
+    .innerJoin(senders, eq(senders.id, campaignSenders.senderId))
+    .where(eq(campaignSenders.campaignId, campaignId));
+
+  const added = await db.transaction(async (tx) => {
+    const queued = await queueRecipients(tx, campaignId, accepted, times, new Set(chosen.map((s) => s.id)), true);
+    const [row] = await tx
+      .update(campaigns)
+      .set({ totalRecipients: sql`${campaigns.totalRecipients} + ${queued}` })
+      .where(eq(campaigns.id, campaignId))
+      .returning({ total: campaigns.totalRecipients });
+    return { queued, total: row.total };
+  });
+
+  if (finish) {
+    if (added.total === 0) {
+      await db.delete(campaigns).where(eq(campaigns.id, campaignId));
+      throw new CampaignError("No valid recipients to send to");
+    }
+    await db.update(campaigns).set({ status: "active" }).where(and(eq(campaigns.id, campaignId), eq(campaigns.status, "draft")));
+  }
+  const capacity = chosen.filter((s) => s.status === "active").reduce((sum, s) => sum + s.dailyLimit, 0);
+  return {
+    accepted: added.queued,
+    duplicates: duplicates + (accepted.length - added.queued),
+    skipped: rejected.length,
+    total: added.total,
+    ...(finish ? { estimatedDays: estimateSendingDays(added.total, capacity) } : {}),
+  };
 }
 
 /** Follow-up: reply in the same thread, from the same mailbox, to everyone who has not replied, bounced or unsubscribed. */
@@ -223,7 +317,7 @@ async function createFollowUp(input: CampaignInput, originalId: string, source: 
     // Same order as the first emails went out, so set times follow that order too.
     .orderBy(asc(messages.sentAt), asc(messages.id));
   if (!targets.length) throw new CampaignError("Nobody left to follow up: everyone replied, bounced, unsubscribed or has not been sent yet");
-  const timeFor = sendTimes(input);
+  const timeFor = sendTimes(input.schedule);
   const times = targets.map((_, i) => timeFor(i));
 
   const senderIds = [...new Set(targets.map((t) => t.senderId).filter((id): id is string => Boolean(id)))];

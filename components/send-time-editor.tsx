@@ -4,13 +4,15 @@ import { CalendarClock, Send, X } from "lucide-react";
 import { useState, useTransition } from "react";
 import { setEmailSendTime } from "@/app/actions/campaigns";
 import { Button, Input } from "@/components/ui";
-import { toLocalInputValue } from "@/lib/time-window";
+import { toZonedInputValue, zonedInputToDate } from "@/lib/time-window";
+import { timezoneName } from "@/lib/timezones";
 
 /**
  * Change one waiting email's send time, send it now, or hand it back to automatic timing.
  * current: the time it's set for or expected at (ISO), used to fill in the picker.
+ * timeZone: the campaign's timezone; the picker shows and reads the clock there.
  */
-export function SendTimeEditor({ messageId, current, isSet }: { messageId: string; current: string | null; isSet: boolean }) {
+export function SendTimeEditor({ messageId, current, isSet, timeZone }: { messageId: string; current: string | null; isSet: boolean; timeZone: string }) {
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -19,7 +21,7 @@ export function SendTimeEditor({ messageId, current, isSet }: { messageId: strin
   function openEditor() {
     const soon = Date.now() + 5 * 60_000;
     const base = current ? Math.max(new Date(current).getTime(), soon) : Date.now() + 60 * 60_000;
-    setValue(toLocalInputValue(new Date(base)));
+    setValue(toZonedInputValue(new Date(base), timeZone));
     setError(null);
     setOpen(true);
   }
@@ -56,7 +58,7 @@ export function SendTimeEditor({ messageId, current, isSet }: { messageId: strin
         </Button>
       </div>
       <div className="flex flex-wrap gap-1.5">
-        <Button type="button" size="sm" disabled={pending || !value} onClick={() => save(new Date(value).toISOString())}>
+        <Button type="button" size="sm" disabled={pending || !value} onClick={() => save(zonedInputToDate(value, timeZone)?.toISOString() ?? "")}>
           {pending ? "Saving…" : "Save"}
         </Button>
         <Button type="button" size="sm" variant="secondary" disabled={pending} onClick={() => save(new Date().toISOString())}>
@@ -69,7 +71,7 @@ export function SendTimeEditor({ messageId, current, isSet }: { messageId: strin
         )}
       </div>
       <p className="text-xs text-muted">
-        In your timezone ({Intl.DateTimeFormat().resolvedOptions().timeZone}). It goes out at this time even outside the send window; the
+        {timezoneName(timeZone)} time (the campaign's timezone). It goes out at this time even outside the send window; the
         mailbox's daily limit still applies.
       </p>
       {error && <p className="text-xs text-danger">{error}</p>}

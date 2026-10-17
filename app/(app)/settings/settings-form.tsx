@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo } from "react";
 import { saveSettings, type FormState } from "@/app/actions/settings";
 import { SubmitButton, useActionForm } from "@/components/client";
+import { TimezoneSelect } from "@/components/timezone-select";
 import { Alert, Card, CardHeader, Checkbox, Field, Input, Textarea } from "@/components/ui";
+import type { TimezoneGroup } from "@/lib/timezones";
 
 type Values = {
   footerText: string;
@@ -15,54 +16,40 @@ type Values = {
   testEmail: string;
 };
 
-export function SettingsForm({ initial }: { initial: Values }) {
+export function SettingsForm({ initial, zones }: { initial: Values; zones: TimezoneGroup[] }) {
   const { state, onSubmit, pending } = useActionForm<FormState>(saveSettings, {});
-  const zones = useMemo(() => {
-    try {
-      return (Intl as unknown as { supportedValuesOf: (k: string) => string[] }).supportedValuesOf("timeZone");
-    } catch {
-      return [];
-    }
-  }, []);
 
   return (
     <form onSubmit={onSubmit} className="space-y-5">
       <Card>
+        <CardHeader title="Sending defaults" description="New campaigns start with these; each campaign can change them." />
+        <div className="space-y-4 p-4 md:p-5">
+          <Field label="Timezone" htmlFor="timezone" hint="Usually your recipients' timezone. Send windows and set times follow this clock.">
+            <TimezoneSelect id="timezone" name="timezone" defaultValue={initial.timezone} groups={zones} />
+          </Field>
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+            <Field label="Window start" htmlFor="windowStart">
+              <Input id="windowStart" name="windowStart" type="time" defaultValue={initial.windowStart} required />
+            </Field>
+            <Field label="Window end" htmlFor="windowEnd">
+              <Input id="windowEnd" name="windowEnd" type="time" defaultValue={initial.windowEnd} required />
+            </Field>
+            <div className="col-span-2 flex items-end pb-1 sm:col-span-1">
+              <Checkbox name="weekdaysOnly" label="Weekdays only" defaultChecked={initial.weekdaysOnly} />
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      <Card>
         <CardHeader title="Email footer" description="Added under every campaign email." />
         <div className="space-y-4 p-4 md:p-5">
-          <Field
-            label="Opt-out line (personal-style emails)"
-            htmlFor="optOutLine"
-            hint="Personal-style emails end with this instead of an unsubscribe link. Keep it short and friendly. Leave empty to leave it out."
-          >
+          <Field label="Opt-out line (personal-style emails)" htmlFor="optOutLine" hint="Used instead of an unsubscribe link. Leave empty to leave it out.">
             <Input id="optOutLine" name="optOutLine" defaultValue={initial.optOutLine} maxLength={300} />
           </Field>
           <Field label="Footer text" htmlFor="footerText" hint="US law (CAN-SPAM) asks for a real postal address in commercial email.">
             <Textarea id="footerText" name="footerText" rows={3} defaultValue={initial.footerText} placeholder={"YourBrand Ltd\n123 Main Street, Dhaka 1212, Bangladesh"} />
           </Field>
-        </div>
-      </Card>
-
-      <Card>
-        <CardHeader title="Default send window" description="New campaigns start with these; each campaign can change them." />
-        <div className="grid gap-4 p-4 sm:grid-cols-2 md:p-5 lg:grid-cols-4">
-          <Field label="Start" htmlFor="windowStart">
-            <Input id="windowStart" name="windowStart" type="time" defaultValue={initial.windowStart} required />
-          </Field>
-          <Field label="End" htmlFor="windowEnd">
-            <Input id="windowEnd" name="windowEnd" type="time" defaultValue={initial.windowEnd} required />
-          </Field>
-          <Field label="Timezone" htmlFor="timezone">
-            <Input id="timezone" name="timezone" list="settings-zones" defaultValue={initial.timezone} required />
-            <datalist id="settings-zones">
-              {zones.map((z) => (
-                <option key={z} value={z} />
-              ))}
-            </datalist>
-          </Field>
-          <div className="flex items-end pb-1">
-            <Checkbox name="weekdaysOnly" label="Weekdays only" defaultChecked={initial.weekdaysOnly} />
-          </div>
         </div>
       </Card>
 
