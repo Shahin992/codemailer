@@ -1,4 +1,4 @@
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { authenticateApi } from "@/lib/api";
 import { db } from "@/lib/db";
@@ -16,7 +16,7 @@ export async function GET(request: Request) {
     .select({ id: recipients.id, email: recipients.email, name: recipients.name, status: recipients.status, mailbox: senders.email, first_contact_at: recipients.firstContactAt, last_contact_at: recipients.lastContactAt })
     .from(recipients)
     .leftJoin(senders, eq(senders.id, recipients.senderId))
-    .where(eq(recipients.email, email));
+    .where(and(eq(recipients.userId, caller.userId), eq(recipients.email, email)));
   if (!person) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const [history, theirReplies] = await Promise.all([

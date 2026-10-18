@@ -13,17 +13,17 @@ This page summarises both. The older, larger design is in `docs/archive/`.
 
 | Table | Holds |
 | --- | --- |
-| `users` | Dashboard accounts: name, email, scrypt password hash, `role` (admin, member), `status` (active, pending, disabled). The first account is the admin. |
+| `users` | Accounts: name, email, scrypt password hash, `role` (`member`, or `superadmin`: approves accounts at `/superadmin`, has no workspace), `status` (`pending` until the super admin approves a sign-up, `active`, `disabled`). Anyone can sign up; nobody can sign in before approval. Each account is a private workspace: `senders`, `recipients`, `campaigns`, `messages`, `replies`, `suppressions` and `settings` all carry the owning account's `user_id`, and every page, action and API call only sees that account's rows. |
 | `senders` | Mailboxes. Holds: provider (hostinger, gmail, custom); SMTP server, port, encryption (`ssl`, `starttls`, `none`) and username; whether the inbox is read (`read_inbox`) and the IMAP server, port, encryption and username; for send-only mailboxes, the mailbox that receives replies (`reply_to_sender_id`); encrypted password (AES-256-GCM); daily limit; next turn (`next_send_at`); `rest_until` (no sending at all until then, set by a “limit exceeded” or “too many” error); status and last error; Sent/Spam folder names; inbox positions (`imap_state`). |
-| `recipients` | Everyone ever emailed: email, name, status (active, replied, bounced, unsubscribed), the mailbox that owns them (`sender_id`), first and last contact |
+| `recipients` | Everyone the account ever emailed (unique per account): email, name, status (active, replied, bounced, unsubscribed), the mailbox that owns them (`sender_id`), first and last contact |
 | `campaigns` | Subject, body (text or HTML), send window and timezone, weekdays only, tracking switches, follow-up link, status (draft while a large list is still uploading, active, paused, done, cancelled), creator |
 | `campaign_senders` | The mailboxes chosen for each campaign |
 | `messages` | One email to one person. `queued` rows are the send queue. Holds merge fields, the final subject, the email's own `Message-ID`, status (queued, sending, sent, bounced, replied, failed, cancelled), `scheduled_at` (a send time someone chose; empty = automatic), attempts, errors, send/bounce/reply times, open and click counts. |
 | `replies` | Replies matched to a sent email: sender, subject, full text and HTML, the reply without quoted history, attachments, auto-reply flag, read state |
 | `tracking_links` | Original URLs behind tracked links |
-| `suppressions` | Do-not-send list (bounced, unsubscribed, manual) |
+| `suppressions` | Each account's do-not-send list (bounced, unsubscribed, manual) |
 | `push_subscriptions` | Browsers and phones that get reply notifications, per user, with delivery health: last sent (push service accepted), last received (the device confirmed), last error |
-| `settings` | One row: footer text, opt-out line, default send window and timezone, test address, and the email logo (file path in `STORAGE_DIR`, type, size, pixel size, width in emails, whether personal-style emails use it) |
+| `settings` | One row per account: footer text, opt-out line, default send window and timezone, test address, and the email logo (file path in `STORAGE_DIR`, type, size, pixel size, width in emails, whether personal-style emails use it) |
 | `jobs` | Cron job locks and last-run results, shown in Settings |
 
 ## Picking the next mailbox
@@ -69,7 +69,9 @@ Set times come from the campaign form ("Set the times myself"), from the API (`s
 - Every request checks that the user still exists and is active, so disabling an account stops its tokens at once.
 - API tokens come from `POST /api/v1/auth/token` with an email and password.
 - 10 failed password attempts lock that address for 15 minutes.
-- The optional `API_KEY` from `.env` is still accepted as a Bearer token.
+- Each token only sees its own account's workspace.
+- The optional `API_KEY` from `.env` is still accepted as a Bearer token. It always acts as the oldest member account, and is refused if that account isn't active.
+- The super admin account gets no API token: the token endpoint answers as for a wrong password.
 
 ## Routes
 
@@ -154,7 +156,7 @@ Rejection reasons are `invalid` and `do_not_send`.
 | Variable | Purpose |
 | --- | --- |
 | `APP_URL` | Public URL, used in tracking and unsubscribe links |
-| `ADMIN_EMAIL` | Optional: the only address allowed to create the first (admin) account |
+| `ADMIN_EMAIL` | Optional: contact address for push notifications when `VAPID_SUBJECT` is empty (no longer affects sign-up) |
 | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | Database (Docker builds `DATABASE_URL` from these) |
 | `DATABASE_URL` | Database connection when running without Docker |
 | `APP_PORT`, `ADMINER_PORT` | Ports on the host (Docker) |
@@ -162,6 +164,6 @@ Rejection reasons are `invalid` and `do_not_send`.
 | `ENCRYPTION_KEY` | 32-byte key that encrypts mailbox passwords |
 | `TRACKING_SECRET` | Signs tracking and unsubscribe tokens |
 | `CRON_SECRET` | Protects `/api/cron/*` |
-| `API_KEY` | Optional shared Bearer key for `/api/v1/*` (JWTs are the usual way) |
+| `API_KEY` | Optional shared Bearer key for `/api/v1/*`, acting as the oldest member account (JWTs are the usual way) |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Push notifications. `VAPID_SUBJECT` must be a real `mailto:` address (Apple refuses `localhost` ones) |
 | `INBOX_WATCH` | Optional: `off` turns off the instant (IMAP IDLE) reply check |

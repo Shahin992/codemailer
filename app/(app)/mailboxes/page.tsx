@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { asc } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { Plus } from "lucide-react";
 import { Time } from "@/components/client";
 import { Badge, ButtonLink, Card, EmptyState, PageHeader, Progress, StatusBadge } from "@/components/ui";
+import { requireSession } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { senders } from "@/lib/db/schema";
 import { sentLast24h } from "@/lib/queries";
@@ -12,9 +13,11 @@ import { PROVIDER_PRESETS } from "@/lib/providers";
 export const metadata: Metadata = { title: "Mailboxes" };
 
 export default async function MailboxesPage() {
+  const me = await requireSession();
   const rows = await db
     .select({ sender: senders, sent24h: sentLast24h })
     .from(senders)
+    .where(eq(senders.userId, me.id))
     .orderBy(asc(senders.createdAt));
   const capacity = rows.filter((r) => r.sender.status === "active").reduce((sum, r) => sum + r.sender.dailyLimit, 0);
 

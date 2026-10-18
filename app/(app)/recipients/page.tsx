@@ -6,6 +6,7 @@ import { Time } from "@/components/client";
 import { FilterChips, ListSearch, Pagination } from "@/components/pagination";
 import { QueueEta } from "@/components/queue-eta";
 import { Alert, Card, CardHeader, EmptyState, PageHeader, StatusBadge } from "@/components/ui";
+import { requireSession } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { campaigns, messages, recipients, replies, senders, suppressions } from "@/lib/db/schema";
 import { getJobStatus } from "@/lib/job-status";
@@ -20,18 +21,20 @@ const STATUSES = ["active", "replied", "bounced", "unsubscribed"] as const;
 type Search = { email?: string; q?: string; status?: string; contacted?: string; page?: string; size?: string };
 
 export default async function RecipientsPage({ searchParams }: { searchParams: Promise<Search> }) {
+  const me = await requireSession();
   const search = await searchParams;
   const email = (search.email ?? "").trim().toLowerCase();
-  return email ? <RecipientDetail email={email} search={search} /> : <RecipientList search={search} />;
+  return email ? <RecipientDetail userId={me.id} email={email} search={search} /> : <RecipientList userId={me.id} search={search} />;
 }
 
-/** Everyone ever added to a campaign, newest contact first. */
-async function RecipientList({ search }: { search: Search }) {
+/** Everyone ever added to one of this account's campaigns, newest contact first. */
+async function RecipientList({ userId, search }: { userId: string; search: Search }) {
   const q = (search.q ?? "").trim();
   const status = STATUSES.find((s) => s === search.status);
   const contacted = search.contacted === "no" ? false : search.contacted === "yes" ? true : undefined;
 
   const where = and(
+    eq(recipients.userId, userId),
     q ? or(ilike(recipients.email, `%${q}%`), ilike(recipients.name, `%${q}%`)) : undefined,
     status ? eq(recipients.status, status) : undefined,
     contacted === undefined ? undefined : contacted ? sql`${recipients.lastContactAt} is not null` : sql`${recipients.lastContactAt} is null`,
@@ -39,7 +42,7 @@ async function RecipientList({ search }: { search: Search }) {
 
   const [[{ total }], byStatus] = await Promise.all([
     db.select({ total: sql<number>`count(*)::int` }).from(recipients).where(where),
-    db.select({ status: recipients.status, n: sql<number>`count(*)::int` }).from(recipients).groupBy(recipients.status),
+    db.select({ status: recipients.status, n: sql<number>`count(*)::int` }).from(recipients).where(eq(recipients.userId, userId)).groupBy(recipients.status),
   ]);
   const paging = clampPage(readPage(search), total);
   const rows = await db
@@ -155,8 +158,8 @@ async function RecipientList({ search }: { search: Search }) {
 }
 
 /** One person: their mailbox, and every email sent to them (paged, newest first) with replies and expected send times. */
-async function RecipientDetail({ email, search }: { email: string; search: Search }) {
-  const [person] = await db.select().from(recipients).where(eq(recipients.email, email));
+async function RecipientDetail({ userId, email, search }: { userId: string; email: string; search: Search }) {
+  const [person] = await db.select().from(recipients).where(and(eq(recipients.userId, userId), eq(recipients.email, email)));
   if (!person) {
     return (
       <>
@@ -175,7 +178,7 @@ async function RecipientDetail({ email, search }: { email: string; search: Searc
       .from(replies)
       .where(and(eq(replies.recipientId, person.id), eq(replies.isAutoReply, false))),
     person.senderId ? db.select({ email: senders.email }).from(senders).where(eq(senders.id, person.senderId)) : Promise.resolve([]),
-    db.select().from(suppressions).where(eq(suppressions.email, person.email)),
+    db.select().from(suppressions).where(and(eq(suppressions.userId, userId), eq(suppressions.email, person.email))),
   ]);
   const paging = clampPage(readPage(search), total);
   const history = await db

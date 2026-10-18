@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { authenticateApi, isUuid } from "@/lib/api";
 import { campaignCounts, EMPTY_COUNTS } from "@/lib/campaigns";
@@ -10,7 +10,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   if (caller instanceof NextResponse) return caller;
   const { id } = await params;
   if (!isUuid(id)) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  const [campaign] = await db.select().from(campaigns).where(eq(campaigns.id, id));
+  const [campaign] = await db.select().from(campaigns).where(and(eq(campaigns.id, id), eq(campaigns.userId, caller.userId)));
   if (!campaign) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const counts = (await campaignCounts([id])).get(id) ?? EMPTY_COUNTS;
   return NextResponse.json({

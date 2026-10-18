@@ -19,7 +19,7 @@ export async function GET(request: Request) {
   const includeAuto = url.searchParams.get("include_auto") === "true";
   if (!url.searchParams.has("page_size") && url.searchParams.has("limit")) url.searchParams.set("page_size", url.searchParams.get("limit")!); // older clients
 
-  const where = and(sinceDate ? gt(replies.receivedAt, sinceDate) : undefined, includeAuto ? undefined : eq(replies.isAutoReply, false));
+  const where = and(eq(replies.userId, caller.userId), sinceDate ? gt(replies.receivedAt, sinceDate) : undefined, includeAuto ? undefined : eq(replies.isAutoReply, false));
   const [{ total }] = await db.select({ total: sql<number>`count(*)::int` }).from(replies).where(where);
   const paging = clampPage(readApiPage(url), total);
 

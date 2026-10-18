@@ -84,7 +84,7 @@ Close the SSH window and open it again (**SSH** button), so Docker works without
 
 Before packing, open `deploy/server.env` on your laptop and fill in:
 
-- `ADMIN_EMAIL`: the email you'll use for the first account;
+- `ADMIN_EMAIL`: optional contact for push notifications (the super admin, created by the database migration, approves all sign-ups);
 - `VAPID_SUBJECT`: `mailto:` followed by your email.
 
 **On your laptop,** pack the project, leaving out build output and local data:

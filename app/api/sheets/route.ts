@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getMemberSession } from "@/lib/auth";
 
 const MAX_BYTES = 30 * 1024 * 1024;
 
@@ -39,7 +39,7 @@ async function readLimited(res: Response): Promise<string | null> {
 
 /** Fetch a shared Google Sheet as CSV for the New campaign page. */
 export async function POST(request: Request) {
-  if (!(await getSession())) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  if (!(await getMemberSession())) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   const { url } = ((await request.json().catch(() => ({}))) ?? {}) as { url?: string };
   const target = url ? exportUrl(url) : null;
   if (!target) return NextResponse.json({ error: "Paste a Google Sheets link (docs.google.com/spreadsheets/…)." }, { status: 400 });

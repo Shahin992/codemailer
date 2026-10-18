@@ -26,7 +26,7 @@ const settingsSchema = z.object({
 });
 
 export async function saveSettings(_prev: FormState, formData: FormData): Promise<FormState> {
-  await requireSession();
+  const me = await requireSession();
   const parsed = settingsSchema.safeParse({
     footerText: String(formData.get("footerText") ?? ""),
     optOutLine: String(formData.get("optOutLine") ?? ""),
@@ -39,44 +39,44 @@ export async function saveSettings(_prev: FormState, formData: FormData): Promis
     logoInPersonal: formData.get("logoInPersonal") === "on",
   });
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Check the fields" };
-  await getSettings();
+  await getSettings(me.id);
   await db
     .update(settings)
     .set({ ...parsed.data, testEmail: parsed.data.testEmail || null, updatedAt: new Date() })
-    .where(eq(settings.id, 1));
+    .where(eq(settings.userId, me.id));
   revalidatePath("/settings");
   return { message: "Settings saved." };
 }
 
 export async function addSuppressions(_prev: FormState, formData: FormData): Promise<FormState> {
-  await requireSession();
+  const me = await requireSession();
   const { valid, invalid } = checkRecipients(parseTypedList(String(formData.get("emails") ?? "")));
   if (!valid.length) return { error: invalid.length ? `Not valid: ${invalid.slice(0, 5).join(", ")}` : "Enter at least one email address." };
   const emails = valid.map((r) => r.email);
   await db
     .insert(suppressions)
-    .values(emails.map((email) => ({ email, reason: "manual" as const })))
+    .values(emails.map((email) => ({ userId: me.id, email, reason: "manual" as const })))
     .onConflictDoNothing();
   await db
     .update(recipients)
     .set({ status: "unsubscribed" })
-    .where(and(inArray(recipients.email, emails), eq(recipients.status, "active")));
+    .where(and(eq(recipients.userId, me.id), inArray(recipients.email, emails), eq(recipients.status, "active")));
   revalidatePath("/suppressions");
   return { message: `Added ${emails.length} address${emails.length === 1 ? "" : "es"}.${invalid.length ? ` Skipped ${invalid.length} invalid.` : ""}` };
 }
 
 /** Only addresses added by hand can be removed; bounces and unsubscribes stay as proof. */
 export async function removeSuppression(email: string) {
-  await requireSession();
+  const me = await requireSession();
   const removed = await db
     .delete(suppressions)
-    .where(and(eq(suppressions.email, email), eq(suppressions.reason, "manual")))
+    .where(and(eq(suppressions.userId, me.id), eq(suppressions.email, email), eq(suppressions.reason, "manual")))
     .returning({ email: suppressions.email });
   if (removed.length) {
     await db
       .update(recipients)
       .set({ status: "active" })
-      .where(and(eq(recipients.email, email), eq(recipients.status, "unsubscribed")));
+      .where(and(eq(recipients.userId, me.id), eq(recipients.email, email), eq(recipients.status, "unsubscribed")));
   }
   revalidatePath("/suppressions");
 }

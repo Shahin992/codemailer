@@ -5,6 +5,7 @@ import { Plus } from "lucide-react";
 import { Time } from "@/components/client";
 import { FilterChips, ListSearch, Pagination } from "@/components/pagination";
 import { ButtonLink, Card, EmptyState, PageHeader, Progress, StatusBadge } from "@/components/ui";
+import { requireSession } from "@/lib/auth";
 import { campaignCounts, EMPTY_COUNTS } from "@/lib/campaigns";
 import { db } from "@/lib/db";
 import { campaigns } from "@/lib/db/schema";
@@ -16,18 +17,19 @@ const STATUSES = ["active", "paused", "done", "cancelled"] as const;
 type Search = { q?: string; status?: string; page?: string; size?: string };
 
 export default async function CampaignsPage({ searchParams }: { searchParams: Promise<Search> }) {
+  const me = await requireSession();
   const search = await searchParams;
   const q = (search.q ?? "").trim();
   const status = STATUSES.find((s) => s === search.status);
 
-  const filters: SQL[] = [];
+  const filters: SQL[] = [eq(campaigns.userId, me.id)];
   if (status) filters.push(eq(campaigns.status, status));
   if (q) filters.push(or(ilike(campaigns.name, `%${q}%`), ilike(campaigns.subject, `%${q}%`))!);
-  const where = filters.length ? and(...filters) : undefined;
+  const where = and(...filters);
 
   const [[{ total }], statusCounts] = await Promise.all([
     db.select({ total: sql<number>`count(*)::int` }).from(campaigns).where(where),
-    db.select({ status: campaigns.status, n: sql<number>`count(*)::int` }).from(campaigns).groupBy(campaigns.status),
+    db.select({ status: campaigns.status, n: sql<number>`count(*)::int` }).from(campaigns).where(eq(campaigns.userId, me.id)).groupBy(campaigns.status),
   ]);
   const params = clampPage(readPage(search, 20), total);
   const rows = await db.select().from(campaigns).where(where).orderBy(desc(campaigns.createdAt), desc(campaigns.id)).limit(params.pageSize).offset(params.offset);

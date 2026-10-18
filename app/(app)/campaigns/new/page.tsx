@@ -12,9 +12,9 @@ import { CampaignForm, type FollowUpInfo, type SenderOption } from "./campaign-f
 
 export const metadata: Metadata = { title: "New campaign" };
 
-async function followUpInfo(id: string): Promise<FollowUpInfo | null> {
+async function followUpInfo(userId: string, id: string): Promise<FollowUpInfo | null> {
   if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
-  const [original] = await db.select().from(campaigns).where(eq(campaigns.id, id));
+  const [original] = await db.select().from(campaigns).where(and(eq(campaigns.id, id), eq(campaigns.userId, userId)));
   if (!original) return null;
   const [eligible] = await db
     .select({ n: sql<number>`count(*)::int` })
@@ -25,7 +25,7 @@ async function followUpInfo(id: string): Promise<FollowUpInfo | null> {
         eq(messages.campaignId, id),
         eq(messages.status, "sent"),
         eq(recipients.status, "active"),
-        sql`not exists (select 1 from ${suppressions} s where s.email = ${recipients.email})`,
+        sql`not exists (select 1 from ${suppressions} s where s.user_id = ${userId} and s.email = ${recipients.email})`,
       ),
     );
   const mailboxes = await db
@@ -53,9 +53,9 @@ async function followUpInfo(id: string): Promise<FollowUpInfo | null> {
 
 export default async function NewCampaignPage({ searchParams }: { searchParams: Promise<{ followUp?: string }> }) {
   const { followUp } = await searchParams;
-  const [me, settings, senderRows, follow] = await Promise.all([
-    requireSession(),
-    getSettings(),
+  const me = await requireSession();
+  const [settings, senderRows, follow] = await Promise.all([
+    getSettings(me.id),
     db
       .select({
         id: senders.id,
@@ -66,8 +66,9 @@ export default async function NewCampaignPage({ searchParams }: { searchParams: 
         dailyLimit: senders.dailyLimit,
       })
       .from(senders)
+      .where(eq(senders.userId, me.id))
       .orderBy(asc(senders.createdAt)),
-    followUp ? followUpInfo(followUp) : Promise.resolve(null),
+    followUp ? followUpInfo(me.id, followUp) : Promise.resolve(null),
   ]);
 
   const options: SenderOption[] = senderRows;

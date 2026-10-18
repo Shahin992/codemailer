@@ -8,6 +8,7 @@ import {
   senders,
   suppressions,
   trackingLinks,
+  users,
   type Campaign,
   type Message,
   type Sender,
@@ -138,7 +139,10 @@ async function threadFor(message: Message): Promise<{ subject: string; messageId
 
 async function sendOne(campaign: Campaign, sender: Sender, message: Message, settings: Settings): Promise<Outcome> {
   const [recipient] = await db.select().from(recipients).where(eq(recipients.id, message.recipientId));
-  const [suppressed] = await db.select().from(suppressions).where(eq(suppressions.email, recipient.email));
+  const [suppressed] = await db
+    .select()
+    .from(suppressions)
+    .where(and(eq(suppressions.userId, campaign.userId), eq(suppressions.email, recipient.email)));
   if (suppressed || recipient.status === "bounced" || recipient.status === "unsubscribed") {
     await db
       .update(messages)
@@ -258,7 +262,7 @@ async function handleSendError(err: unknown, sender: Sender, message: Message, a
         .set({ status: "bounced" })
         .where(eq(recipients.id, message.recipientId))
         .returning({ email: recipients.email });
-      if (recipient) await db.insert(suppressions).values({ email: recipient.email, reason: "bounced" }).onConflictDoNothing();
+      if (recipient) await db.insert(suppressions).values({ userId: message.userId, email: recipient.email, reason: "bounced" }).onConflictDoNothing();
       return "bounced";
     }
     case "rejected":
@@ -306,16 +310,28 @@ async function sendNext(campaign: Campaign, settings: Settings): Promise<Outcome
 export async function runSendJob(): Promise<string> {
   const started = Date.now();
   await recoverStuck();
-  const settings = await getSettings();
+  // Each campaign uses its own account's footer, opt-out line and logo.
+  const settingsByUser = new Map<string, Settings>();
+  const settingsFor = async (userId: string) => {
+    if (!settingsByUser.has(userId)) settingsByUser.set(userId, await getSettings(userId));
+    return settingsByUser.get(userId)!;
+  };
   const counts: Record<Outcome, number> = { sent: 0, bounced: 0, failed: 0, retry: 0, skipped: 0 };
 
   let progressed = true;
   while (progressed && Date.now() - started < TIME_BUDGET_MS) {
     progressed = false;
-    const active = await db.select().from(campaigns).where(eq(campaigns.status, "active")).orderBy(asc(campaigns.createdAt));
+    // A disabled account's campaigns wait until an admin enables it again.
+    const active = await db
+      .select({ campaign: campaigns })
+      .from(campaigns)
+      .innerJoin(users, eq(users.id, campaigns.userId))
+      .where(and(eq(campaigns.status, "active"), eq(users.status, "active")))
+      .orderBy(asc(campaigns.createdAt))
+      .then((rows) => rows.map((r) => r.campaign));
     for (const campaign of active) {
       if (Date.now() - started >= TIME_BUDGET_MS) break;
-      const outcome = await sendNext(campaign, settings);
+      const outcome = await sendNext(campaign, await settingsFor(campaign.userId));
       if (outcome !== "idle") {
         counts[outcome]++;
         progressed = true;

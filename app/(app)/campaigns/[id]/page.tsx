@@ -7,6 +7,7 @@ import { cancelCampaign, discardDraftCampaign, retryFailed, setCampaignStatus } 
 import { SubmitButton, Time } from "@/components/client";
 import { FilterChips, ListSearch, Pagination } from "@/components/pagination";
 import { Alert, ButtonLink, Card, CardHeader, Progress, Stat, StatusBadge } from "@/components/ui";
+import { requireSession } from "@/lib/auth";
 import { campaignCounts, EMPTY_COUNTS } from "@/lib/campaigns";
 import { db } from "@/lib/db";
 import { campaignSenders, campaigns, messages, recipients, replies, senders, MESSAGE_STATUSES, type MessageStatus } from "@/lib/db/schema";
@@ -26,10 +27,11 @@ export default async function CampaignPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ status?: string; q?: string; page?: string; size?: string; created?: string; skipped?: string }>;
 }) {
+  const me = await requireSession();
   const { id } = await params;
   const query = await searchParams;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
-  const [campaign] = await db.select().from(campaigns).where(eq(campaigns.id, id));
+  const [campaign] = await db.select().from(campaigns).where(and(eq(campaigns.id, id), eq(campaigns.userId, me.id)));
   if (!campaign) notFound();
 
   const filter = MESSAGE_STATUSES.includes(query.status as MessageStatus) ? (query.status as MessageStatus) : undefined;

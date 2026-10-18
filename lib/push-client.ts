@@ -63,6 +63,14 @@ export async function currentSubscription(vapidPublicKey: string): Promise<{ sub
   return { sub, replaced };
 }
 
+/** This device's push subscription endpoint, if it has one. Never creates one. */
+export async function existingEndpoint(): Promise<string | null> {
+  if (!pushSupported()) return null;
+  const reg = await navigator.serviceWorker.getRegistration();
+  const sub = await reg?.pushManager.getSubscription();
+  return sub?.endpoint ?? null;
+}
+
 export function subscriptionKeys(sub: PushSubscription) {
   const json = sub.toJSON();
   return { endpoint: sub.endpoint, p256dh: json.keys?.p256dh ?? "", auth: json.keys?.auth ?? "" };

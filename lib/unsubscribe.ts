@@ -9,6 +9,7 @@ export async function recipientForToken(token: string) {
   if (!messageId) return null;
   const [row] = await db
     .select({
+      userId: messages.userId,
       recipientId: recipients.id,
       email: recipients.email,
       status: recipients.status,
@@ -22,11 +23,11 @@ export async function recipientForToken(token: string) {
   return row ?? null;
 }
 
-/** Block the address everywhere and cancel anything still waiting to go to it. */
+/** Put the address on the sending account's do-not-send list and cancel anything still waiting to go to it. */
 export async function unsubscribeByToken(token: string): Promise<string | null> {
   const person = await recipientForToken(token);
   if (!person) return null;
-  await db.insert(suppressions).values({ email: person.email, reason: "unsubscribed" }).onConflictDoNothing();
+  await db.insert(suppressions).values({ userId: person.userId, email: person.email, reason: "unsubscribed" }).onConflictDoNothing();
   await db.update(recipients).set({ status: "unsubscribed" }).where(eq(recipients.id, person.recipientId));
   await db
     .update(messages)

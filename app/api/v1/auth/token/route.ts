@@ -19,7 +19,7 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: `Send JSON: {"email": "...", "password": "...", "days": 1-${API_TOKEN_MAX_DAYS} (optional, default 30)}` }, { status: 400 });
   }
-  const result = await checkCredentials(parsed.data.email, parsed.data.password, clientIp(request.headers));
+  const result = await checkCredentials(parsed.data.email, parsed.data.password, clientIp(request.headers), "member");
   if (!result.ok) {
     const status = result.reason === "limited" ? 429 : result.reason === "invalid" ? 401 : 403;
     return NextResponse.json({ error: result.message }, { status });

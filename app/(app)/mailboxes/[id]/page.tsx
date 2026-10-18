@@ -37,23 +37,23 @@ export default async function MailboxPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ saved?: string; test?: string; testError?: string }>;
 }) {
+  const me = await requireSession();
   const { id } = await params;
   const query = await searchParams;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
   const [row] = await db
     .select({ sender: senders, sent24h: sentLast24h })
     .from(senders)
-    .where(eq(senders.id, id));
+    .where(and(eq(senders.id, id), eq(senders.userId, me.id)));
   if (!row) notFound();
   const { sender, sent24h } = row;
-  const [me, settings, dns, replyTargets] = await Promise.all([
-    requireSession(),
-    getSettings(),
+  const [settings, dns, replyTargets] = await Promise.all([
+    getSettings(me.id),
     checkDomainDns(domainOf(sender.email)),
     db
       .select({ id: senders.id, email: senders.email })
       .from(senders)
-      .where(and(eq(senders.readInbox, true), ne(senders.id, sender.id)))
+      .where(and(eq(senders.userId, me.id), eq(senders.readInbox, true), ne(senders.id, sender.id)))
       .orderBy(asc(senders.createdAt)),
   ]);
   const replyMailbox = sender.replyToSenderId ? replyTargets.find((t) => t.id === sender.replyToSenderId)?.email : undefined;

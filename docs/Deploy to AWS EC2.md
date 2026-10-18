@@ -34,7 +34,7 @@ Six months come to about **$90**. The $100 sign-up credit covers it, and the $40
 
 Open `deploy/server.env` and check two values:
 
-- **`ADMIN_EMAIL`**: put the email you'll register with. It's empty now, and while it's empty, **whoever opens the site first becomes the admin**.
+- **`ADMIN_EMAIL`**: optional, only a fallback contact for push notifications. Nobody becomes admin by signing up first: the database migration creates the super admin, who approves every sign-up.
 - **`VAPID_SUBJECT`**: `mailto:` followed by an address you read. It's currently `mailto:admin@edufusionbd.online`.
 
 **Make DKIM work.** On Oct 16 the three DKIM records below existed in Cloudflare but were **Proxied** (orange cloud). Gmail then gets Cloudflare's IPs instead of the DKIM key, so DKIM fails and mail lands in spam. In Cloudflare (**DNS → Records**), each of these `CNAME` records must have **Proxy status: DNS only** (grey cloud). The same goes for every mail record (`autoconfig`, `autodiscover`, MX):
@@ -215,7 +215,7 @@ docker compose logs caddy --tail 20
 
 `migrate` should show **Exited (0)**, and the others **Up**. When Caddy's log shows `certificate obtained successfully`, open **https://coldmailer.edufusionbd.online**:
 
-1. Create your account with the `ADMIN_EMAIL` address. It becomes the admin.
+1. Open `/superadmin/login`, sign in as the super admin (created by the migration) and change its starting password in the panel straight away. Then create your own account at `/register` and approve it in the super admin panel.
 2. Add your mailboxes again. The server starts with a fresh database.
 3. In Settings:
    - set the footer address and the opt-out line;

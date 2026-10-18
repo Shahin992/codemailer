@@ -1,6 +1,6 @@
 "use server";
 
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
@@ -70,7 +70,7 @@ async function sendTestMessage(
 }
 
 export async function saveMailbox(_prev: MailboxFormState, formData: FormData): Promise<MailboxFormState> {
-  await requireSession();
+  const me = await requireSession();
   const parsed = formSchema.safeParse({
     id: field(formData, "id"),
     provider: field(formData, "provider"),
@@ -96,7 +96,7 @@ export async function saveMailbox(_prev: MailboxFormState, formData: FormData): 
     return { error: "Please fix the highlighted fields.", fieldErrors };
   }
   const input = parsed.data;
-  const existing = input.id ? (await db.select().from(senders).where(eq(senders.id, input.id)))[0] : undefined;
+  const existing = input.id ? (await db.select().from(senders).where(and(eq(senders.id, input.id), eq(senders.userId, me.id))))[0] : undefined;
   if (input.id && !existing) return { error: "Mailbox not found." };
 
   const preset = PROVIDER_PRESETS[input.provider];
@@ -118,7 +118,7 @@ export async function saveMailbox(_prev: MailboxFormState, formData: FormData): 
 
   let replyToSenderId: string | null = null;
   if (!readInbox && input.replyToSenderId) {
-    const [target] = await db.select().from(senders).where(eq(senders.id, input.replyToSenderId));
+    const [target] = await db.select().from(senders).where(and(eq(senders.id, input.replyToSenderId), eq(senders.userId, me.id)));
     if (!target || target.id === existing?.id || !target.readInbox) {
       return { error: "Replies must go to a mailbox whose inbox ColdMailer reads.", fieldErrors: { replyToSenderId: "Pick another mailbox" } };
     }
@@ -175,10 +175,11 @@ export async function saveMailbox(_prev: MailboxFormState, formData: FormData): 
     if (existing) {
       await db.update(senders).set(values).where(eq(senders.id, existing.id));
     } else {
-      const [row] = await db.insert(senders).values(values).returning({ id: senders.id });
+      const [row] = await db.insert(senders).values({ ...values, userId: me.id }).returning({ id: senders.id });
       id = row.id;
     }
   } catch (err) {
+    // Unique per account only, so this never reveals whether another account has the same mailbox.
     if (String((err as { code?: string }).code) === "23505") return { error: "This mailbox is already added." };
     throw err;
   }
@@ -198,14 +199,15 @@ export async function saveMailbox(_prev: MailboxFormState, formData: FormData): 
   redirect(`/mailboxes/${id}?saved=1${testNote}`);
 }
 
+/** One of the signed-in account's mailboxes. */
 async function loadSender(id: string): Promise<Sender> {
-  const [sender] = await db.select().from(senders).where(eq(senders.id, id));
+  const me = await requireSession();
+  const [sender] = await db.select().from(senders).where(and(eq(senders.id, id), eq(senders.userId, me.id)));
   if (!sender) throw new Error("Mailbox not found");
   return sender;
 }
 
 export async function retestMailbox(id: string, _prev: MailboxActionState): Promise<MailboxActionState> {
-  await requireSession();
   const sender = await loadSender(id);
   try {
     const test = await testConnection(configFromSender(sender));
@@ -230,10 +232,9 @@ export async function retestMailbox(id: string, _prev: MailboxActionState): Prom
 }
 
 export async function sendMailboxTest(id: string, _prev: MailboxActionState, formData: FormData): Promise<MailboxActionState> {
-  await requireSession();
+  const sender = await loadSender(id);
   const to = normalizeEmail(String(formData.get("to") ?? ""));
   if (!isValidEmail(to)) return { error: "Enter a valid email address." };
-  const sender = await loadSender(id);
   try {
     await sendTestMessage(sender.id, configFromSender(sender), sender, to);
     return { message: `Test email sent to ${to}. Check that inbox (and its spam folder).` };
@@ -243,17 +244,17 @@ export async function sendMailboxTest(id: string, _prev: MailboxActionState, for
 }
 
 export async function setMailboxStatus(id: string, status: "active" | "paused") {
-  await requireSession();
+  const me = await requireSession();
   await db
     .update(senders)
     .set(status === "active" ? { status, nextSendAt: sql`least(${senders.nextSendAt}, now())`, lastError: null, lastErrorAt: null } : { status })
-    .where(eq(senders.id, id));
+    .where(and(eq(senders.id, id), eq(senders.userId, me.id)));
   revalidatePath("/mailboxes");
   revalidatePath(`/mailboxes/${id}`);
 }
 
 export async function deleteMailbox(id: string, _prev: MailboxActionState): Promise<MailboxActionState> {
-  await requireSession();
+  await loadSender(id);
   const [used] = await db.select({ n: sql<number>`count(*)::int` }).from(messages).where(eq(messages.senderId, id));
   if (used.n > 0) {
     return { error: "This mailbox has already sent emails, so it's kept for your history. Pause it instead." };

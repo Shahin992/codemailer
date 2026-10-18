@@ -7,15 +7,15 @@ import { db } from "@/lib/db";
 import { replies } from "@/lib/db/schema";
 
 export async function markReplyUnread(id: string) {
-  await requireSession();
-  await db.update(replies).set({ readAt: null }).where(eq(replies.id, id));
+  const me = await requireSession();
+  await db.update(replies).set({ readAt: null }).where(and(eq(replies.id, id), eq(replies.userId, me.id)));
   revalidatePath("/replies");
   revalidatePath(`/replies/${id}`);
 }
 
 export async function markAllRepliesRead() {
-  await requireSession();
-  await db.update(replies).set({ readAt: new Date() }).where(and(isNull(replies.readAt)));
+  const me = await requireSession();
+  await db.update(replies).set({ readAt: new Date() }).where(and(eq(replies.userId, me.id), isNull(replies.readAt)));
   revalidatePath("/replies");
   revalidatePath("/", "layout");
 }

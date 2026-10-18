@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { saveMailbox, type MailboxFormState } from "@/app/actions/mailboxes";
-import { SubmitButton, useActionForm } from "@/components/client";
+import { PasswordInput, SubmitButton, useActionForm } from "@/components/client";
 import { Alert, Card, CardHeader, Checkbox, Field, Input, Select, cn } from "@/components/ui";
 import type { Provider, Security } from "@/lib/db/schema";
 import { PROVIDER_PRESETS, SECURITY_LABELS, SMTP_TEMPLATES, UNSUPPORTED_NOTE, securityForPort } from "@/lib/providers";
@@ -101,7 +101,7 @@ export function MailboxForm({
   }
 
   return (
-    <form onSubmit={onSubmit} className="space-y-5">
+    <form method="post" onSubmit={onSubmit} className="space-y-5">
       {initial?.id && <input type="hidden" name="id" value={initial.id} />}
       <input type="hidden" name="provider" value={provider} />
 
@@ -152,7 +152,7 @@ export function MailboxForm({
             <Input id="displayName" name="displayName" defaultValue={initial?.displayName} placeholder="Sarah from YourBrand" />
           </Field>
           <Field label={preset.passwordLabel} htmlFor="password" error={err.password} hint={editing ? "Leave empty to keep the saved password." : preset.help}>
-            <Input id="password" name="password" type="password" required={!editing} autoComplete="new-password" />
+            <PasswordInput id="password" name="password" required={!editing} autoComplete="new-password" />
           </Field>
           <Field label="Daily limit" htmlFor="dailyLimit" error={err.dailyLimit} hint={`Emails per 24 hours. Start around ${preset.dailyLimit} and raise slowly.`}>
             <Input

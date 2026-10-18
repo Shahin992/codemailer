@@ -77,12 +77,12 @@ function resolveBody(input: CampaignInput): { bodyFormat: "text" | "html"; bodyH
   throw new CampaignError("Write the email body");
 }
 
-async function resolveSenders(input: CampaignInput) {
+async function resolveSenders(userId: string, input: CampaignInput) {
   const conditions = [];
   if (input.senderIds?.length) conditions.push(inArray(senders.id, input.senderIds));
   if (input.senderEmails?.length) conditions.push(inArray(senders.email, input.senderEmails.map((e) => e.trim().toLowerCase())));
   const rows = conditions.length
-    ? await db.select().from(senders).where(sql.join(conditions, sql` or `))
+    ? await db.select().from(senders).where(and(eq(senders.userId, userId), sql`(${sql.join(conditions, sql` or `)})`))
     : [];
   if (!rows.length) throw new CampaignError("Choose at least one mailbox to send from");
   return rows;
@@ -115,11 +115,14 @@ function sendTimes(schedule: CampaignInput["schedule"]) {
   };
 }
 
-async function suppressedSet(emails: string[]): Promise<Set<string>> {
+async function suppressedSet(userId: string, emails: string[]): Promise<Set<string>> {
   const found = new Set<string>();
   for (let i = 0; i < emails.length; i += 1000) {
     const chunk = emails.slice(i, i + 1000);
-    const rows = await db.select({ email: suppressions.email }).from(suppressions).where(inArray(suppressions.email, chunk));
+    const rows = await db
+      .select({ email: suppressions.email })
+      .from(suppressions)
+      .where(and(eq(suppressions.userId, userId), inArray(suppressions.email, chunk)));
     rows.forEach((r) => found.add(r.email));
   }
   return found;
@@ -129,9 +132,9 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type Rejected = CreateCampaignResult["rejected"];
 
 /** The valid, not-blocked people in a list, and who was left out. */
-async function screenRecipients(list: NonNullable<CampaignInput["recipients"]>) {
+async function screenRecipients(userId: string, list: NonNullable<CampaignInput["recipients"]>) {
   const { valid, invalid, duplicates } = checkRecipients(toParsed(list));
-  const blocked = await suppressedSet(valid.map((r) => r.email));
+  const blocked = await suppressedSet(userId, valid.map((r) => r.email));
   const accepted = valid.filter((r) => !blocked.has(r.email));
   const rejected: Rejected = [
     ...invalid.map((email) => ({ email, reason: "invalid" as const })),
@@ -146,6 +149,7 @@ async function screenRecipients(list: NonNullable<CampaignInput["recipients"]>) 
  */
 async function queueRecipients(
   tx: Tx,
+  userId: string,
   campaignId: string,
   people: ParsedRecipient[],
   times: (Date | null)[],
@@ -157,9 +161,9 @@ async function queueRecipients(
     const chunk = people.slice(i, i + 1000);
     const saved = await tx
       .insert(recipients)
-      .values(chunk.map((r) => ({ email: r.email, name: r.name ?? null })))
+      .values(chunk.map((r) => ({ userId, email: r.email, name: r.name ?? null })))
       .onConflictDoUpdate({
-        target: recipients.email,
+        target: [recipients.userId, recipients.email],
         set: { name: sql`coalesce(excluded.name, ${recipients.name})` },
       })
       .returning({ id: recipients.id, email: recipients.email, senderId: recipients.senderId });
@@ -178,6 +182,7 @@ async function queueRecipients(
       .map((r, j) => {
         const person = byEmail.get(r.email)!;
         return {
+          userId,
           campaignId,
           recipientId: person.id,
           // Someone already emailed by one of the chosen mailboxes keeps that mailbox.
@@ -200,18 +205,18 @@ async function queueRecipients(
 export async function createCampaign(
   input: CampaignInput,
   source: "ui" | "api",
-  createdBy?: string,
+  userId: string,
   { draft = false }: { draft?: boolean } = {},
 ): Promise<CreateCampaignResult> {
-  if (input.followUpOf) return createFollowUp(input, input.followUpOf, source, createdBy);
+  if (input.followUpOf) return createFollowUp(input, input.followUpOf, source, userId);
 
-  const settings = await getSettings();
+  const settings = await getSettings(userId);
   const subject = input.subject?.trim();
   if (!subject) throw new CampaignError("Write a subject");
   const body = resolveBody(input);
-  const chosen = await resolveSenders(input);
+  const chosen = await resolveSenders(userId, input);
 
-  const { accepted, rejected, duplicates } = await screenRecipients(input.recipients ?? []);
+  const { accepted, rejected, duplicates } = await screenRecipients(userId, input.recipients ?? []);
   if (!accepted.length && !draft) throw new CampaignError("No valid recipients to send to");
   const timeFor = sendTimes(input.schedule);
   const times = accepted.map((r, i) => timeFor(i, r.sendAt));
@@ -222,6 +227,7 @@ export async function createCampaign(
     const [campaign] = await tx
       .insert(campaigns)
       .values({
+        userId,
         name: input.name,
         subject,
         ...body,
@@ -236,11 +242,11 @@ export async function createCampaign(
         weekdaysOnly: input.weekdaysOnly ?? settings.weekdaysOnly,
         totalRecipients: accepted.length,
         source,
-        createdBy: createdBy ?? null,
+        createdBy: userId,
       })
       .returning({ id: campaigns.id });
     await tx.insert(campaignSenders).values(chosen.map((s) => ({ campaignId: campaign.id, senderId: s.id })));
-    await queueRecipients(tx, campaign.id, accepted, times, chosenIds, false);
+    await queueRecipients(tx, userId, campaign.id, accepted, times, chosenIds, false);
     return campaign.id;
   });
 
@@ -256,10 +262,15 @@ export type AddRecipientsResult = { accepted: number; duplicates: number; skippe
  * Add the next part of a large list to a draft campaign. With `finish`, the campaign starts sending.
  * People already in the campaign are skipped, so sending a part twice does no harm.
  */
-export async function addCampaignRecipients(campaignId: string, list: NonNullable<CampaignInput["recipients"]>, finish: boolean): Promise<AddRecipientsResult> {
-  const [campaign] = await db.select().from(campaigns).where(eq(campaigns.id, campaignId));
+export async function addCampaignRecipients(
+  userId: string,
+  campaignId: string,
+  list: NonNullable<CampaignInput["recipients"]>,
+  finish: boolean,
+): Promise<AddRecipientsResult> {
+  const [campaign] = await db.select().from(campaigns).where(and(eq(campaigns.id, campaignId), eq(campaigns.userId, userId)));
   if (!campaign || campaign.status !== "draft") throw new CampaignError("This campaign isn't waiting for more recipients.");
-  const { accepted, rejected, duplicates } = await screenRecipients(list);
+  const { accepted, rejected, duplicates } = await screenRecipients(userId, list);
   if (campaign.totalRecipients + accepted.length > MAX_RECIPIENTS) throw new CampaignError(`Up to ${MAX_RECIPIENTS.toLocaleString("en-US")} recipients per campaign`);
   const timeFor = sendTimes(undefined);
   const times = accepted.map((r, i) => timeFor(i, r.sendAt));
@@ -270,7 +281,7 @@ export async function addCampaignRecipients(campaignId: string, list: NonNullabl
     .where(eq(campaignSenders.campaignId, campaignId));
 
   const added = await db.transaction(async (tx) => {
-    const queued = await queueRecipients(tx, campaignId, accepted, times, new Set(chosen.map((s) => s.id)), true);
+    const queued = await queueRecipients(tx, userId, campaignId, accepted, times, new Set(chosen.map((s) => s.id)), true);
     const [row] = await tx
       .update(campaigns)
       .set({ totalRecipients: sql`${campaigns.totalRecipients} + ${queued}` })
@@ -297,8 +308,8 @@ export async function addCampaignRecipients(campaignId: string, list: NonNullabl
 }
 
 /** Follow-up: reply in the same thread, from the same mailbox, to everyone who has not replied, bounced or unsubscribed. */
-async function createFollowUp(input: CampaignInput, originalId: string, source: "ui" | "api", createdBy?: string): Promise<CreateCampaignResult> {
-  const [original] = await db.select().from(campaigns).where(eq(campaigns.id, originalId));
+async function createFollowUp(input: CampaignInput, originalId: string, source: "ui" | "api", userId: string): Promise<CreateCampaignResult> {
+  const [original] = await db.select().from(campaigns).where(and(eq(campaigns.id, originalId), eq(campaigns.userId, userId)));
   if (!original) throw new CampaignError("The campaign to follow up was not found");
   const body = resolveBody(input);
 
@@ -311,7 +322,7 @@ async function createFollowUp(input: CampaignInput, originalId: string, source: 
         eq(messages.campaignId, originalId),
         eq(messages.status, "sent"),
         eq(recipients.status, "active"),
-        sql`not exists (select 1 from ${suppressions} s where s.email = ${recipients.email})`,
+        sql`not exists (select 1 from ${suppressions} s where s.user_id = ${userId} and s.email = ${recipients.email})`,
       ),
     )
     // Same order as the first emails went out, so set times follow that order too.
@@ -325,6 +336,7 @@ async function createFollowUp(input: CampaignInput, originalId: string, source: 
     const [campaign] = await tx
       .insert(campaigns)
       .values({
+        userId,
         name: input.name,
         subject: `Re: ${original.subject}`,
         ...body,
@@ -338,7 +350,7 @@ async function createFollowUp(input: CampaignInput, originalId: string, source: 
         weekdaysOnly: input.weekdaysOnly ?? original.weekdaysOnly,
         totalRecipients: targets.length,
         source,
-        createdBy: createdBy ?? null,
+        createdBy: userId,
       })
       .returning({ id: campaigns.id });
     if (senderIds.length) await tx.insert(campaignSenders).values(senderIds.map((senderId) => ({ campaignId: campaign.id, senderId })));
@@ -347,6 +359,7 @@ async function createFollowUp(input: CampaignInput, originalId: string, source: 
     for (let i = 0; i < targets.length; i += 500) {
       await tx.insert(messages).values(
         targets.slice(i, i + 500).map((t, j) => ({
+          userId,
           campaignId: campaign.id,
           recipientId: t.recipientId,
           senderId: t.senderId,

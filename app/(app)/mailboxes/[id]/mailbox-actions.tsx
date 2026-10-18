@@ -47,7 +47,7 @@ export function MailboxActions({ id, status, testEmail }: { id: string; status: 
       <Result state={testState} />
       <Result state={deleteState} />
 
-      <form onSubmit={send.onSubmit} className="flex flex-col gap-2 sm:flex-row">
+      <form method="post" onSubmit={send.onSubmit} className="flex flex-col gap-2 sm:flex-row">
         <Input name="to" type="email" defaultValue={testEmail} placeholder="you@yourdomain.com" aria-label="Send test email to" required />
         <SubmitButton pending={send.pending} variant="secondary" pendingText="Sending…" className="sm:w-auto">
           <Send className="size-4" /> Send test email

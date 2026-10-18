@@ -6,6 +6,7 @@ import { markAllRepliesRead } from "@/app/actions/replies";
 import { SubmitButton, Time } from "@/components/client";
 import { FilterChips, ListSearch, Pagination } from "@/components/pagination";
 import { Badge, Card, EmptyState, PageHeader, cn } from "@/components/ui";
+import { requireSession } from "@/lib/auth";
 import { clampPage, pageInfo, readPage } from "@/lib/pagination";
 import { db } from "@/lib/db";
 import { campaigns, messages, replies, senders } from "@/lib/db/schema";
@@ -18,10 +19,12 @@ export const metadata: Metadata = { title: "Replies" };
 type Search = { show?: string; q?: string; page?: string; size?: string };
 
 export default async function RepliesPage({ searchParams }: { searchParams: Promise<Search> }) {
+  const me = await requireSession();
   const search = await searchParams;
   const view = search.show === "unread" || search.show === "auto" ? search.show : "all";
   const q = (search.q ?? "").trim();
   const where = and(
+    eq(replies.userId, me.id),
     view === "unread"
       ? and(isNull(replies.readAt), eq(replies.isAutoReply, false))
       : view === "auto"
@@ -64,7 +67,7 @@ export default async function RepliesPage({ searchParams }: { searchParams: Prom
   const [unread] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(replies)
-    .where(and(isNull(replies.readAt), eq(replies.isAutoReply, false)));
+    .where(and(eq(replies.userId, me.id), isNull(replies.readAt), eq(replies.isAutoReply, false)));
 
   return (
     <>

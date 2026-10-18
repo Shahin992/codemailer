@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { requireSession } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { pushSubscriptions } from "@/lib/db/schema";
-import { INSTALLED_MARK, pushConfigured, saveSubscription, sendPushToAll, type PushResult, type SubscriptionInput } from "@/lib/push";
+import { INSTALLED_MARK, pushConfigured, saveSubscription, sendPushToUser, type PushResult, type SubscriptionInput } from "@/lib/push";
 import { APP_NAME } from "@/lib/brand";
 
 /**
@@ -18,8 +18,8 @@ export async function savePushSubscription(sub: SubscriptionInput, userAgent: st
 }
 
 export async function removePushSubscription(endpoint: string) {
-  await requireSession();
-  await db.delete(pushSubscriptions).where(eq(pushSubscriptions.endpoint, endpoint));
+  const me = await requireSession();
+  await db.delete(pushSubscriptions).where(and(eq(pushSubscriptions.endpoint, endpoint), eq(pushSubscriptions.userId, me.id)));
   revalidatePath("/settings");
 }
 
@@ -31,11 +31,11 @@ export async function removePushDevice(id: string) {
   revalidatePath("/settings");
 }
 
-/** Send a test notification to every device and say, per device, whether the push service took it. */
+/** Send a test notification to each of your devices and say, per device, whether the push service took it. */
 export async function sendTestPush(): Promise<{ results: PushResult[]; error?: string }> {
-  await requireSession();
+  const me = await requireSession();
   if (!pushConfigured()) return { results: [], error: "VAPID keys are missing from .env." };
-  const results = await sendPushToAll({ title: APP_NAME, body: "Notifications work. You'll get one for each new reply.", url: "/replies", tag: `test-${Date.now()}` });
+  const results = await sendPushToUser(me.id, { title: APP_NAME, body: "Notifications work. You'll get one for each new reply.", url: "/replies", tag: `test-${Date.now()}` });
   revalidatePath("/settings");
   return { results, error: results.length ? undefined : "No device has notifications turned on yet." };
 }

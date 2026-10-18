@@ -14,7 +14,7 @@ ColdMailer sends email campaigns through your Hostinger business mailboxes, Gmai
 - **Tracking:** sent, bounced and replied, plus optional opens and clicks. Hard bounces and unsubscribes go on the do-not-send list automatically.
 - **Replies:** the app keeps an IMAP IDLE connection to each active inbox, so a reply is picked up within seconds and pushed to your phone; a full check (inbox and spam folder) also runs every 5 minutes. Read-only, so unread mail stays unread. Replies are matched to the exact email they answer.
 - **Follow-ups:** reply in the same thread, from the same mailbox, to everyone who hasn't answered.
-- **Team:** sign in and register. The first account is the admin; later sign-ups wait for an admin's approval. Logins and API access use JWTs.
+- **Accounts:** anyone can sign up with their email address; the account can be used once the **super admin** approves it. Each account is a private workspace: its own mailboxes, campaigns, recipients, replies, do-not-send list, settings and reply notifications. The super admin signs in at `/superadmin/login` and approves, rejects, disables (a disabled account can't sign in and its campaigns stop sending) and deletes accounts; it has no workspace of its own. Logins and API access use JWTs.
 
 The plan behind it is in [`docs/`](docs/).
 
@@ -27,7 +27,7 @@ cp .env.example .env
 npm run keys        # or: docker run --rm -v "$PWD":/app -w /app node:22-alpine node scripts/generate-keys.mjs
 ```
 
-Paste the printed keys into `.env`, then set `APP_URL`, `ADMIN_EMAIL` and `POSTGRES_PASSWORD`. Set `UID` and `GID` to your user's ids (`id -u`, `id -g`) so new migration files in `drizzle/` belong to you. Then:
+Paste the printed keys into `.env`, then set `APP_URL` and `POSTGRES_PASSWORD`. Set `UID` and `GID` to your user's ids (`id -u`, `id -g`) so new migration files in `drizzle/` belong to you. Then:
 
 ```bash
 docker compose up -d --build
@@ -41,7 +41,7 @@ docker compose up -d --build
 | `cron` | Calls the send job every minute and the inbox job every 5 minutes | — |
 | `adminer` | Database browser (server `db`, PostgreSQL, user/password from `.env`) | http://localhost:8080, this machine only |
 
-Open the app: it always starts on the sign-in page. Choose **Create one** to make the first account, which becomes the admin (if `ADMIN_EMAIL` is set, only that address can create it), then sign in with it. Creating an account never signs you in automatically.
+Open `/superadmin/login` and sign in as the super admin that the database migration creates, and change its starting password in the panel. Then create your own account at `/register` (**Create one** on the sign-in page) and approve it in the super admin panel. Every sign-up waits for that approval; creating an account never signs you in automatically. Every `docker compose up` first saves a database backup to `./backups` (newest 10 kept), and only then applies migrations.
 
 **Put it online:** [`docs/Deploy to AWS EC2.md`](docs/Deploy%20to%20AWS%20EC2.md) (t3.micro, free tier or credits), [`docs/Deploy to Google Cloud.md`](docs/Deploy%20to%20Google%20Cloud.md) (free e2-micro) and [`docs/Deploy to Oracle Cloud.md`](docs/Deploy%20to%20Oracle%20Cloud.md) walk through a small server with automatic HTTPS (Caddy, switched on by `COMPOSE_PROFILES=https` and `APP_DOMAIN` in `.env`) and nightly backups (`scripts/backup.sh`). Push notifications and installing the app need HTTPS. The app port and Adminer only listen on the machine itself; reach Adminer on a server through an SSH tunnel: `ssh -L 8080:127.0.0.1:8080 you@server`.
 
@@ -194,7 +194,7 @@ Every request carries a JWT: `Authorization: Bearer <token>`. Get a token with:
 
 - **`POST /api/v1/auth/token`** with `{"email": "...", "password": "...", "days": 30}`. It returns `{"access_token": "eyJ…", "token_type": "Bearer", "expires_in": …}`.
 
-Tokens are signed with `AUTH_SECRET` (HS256). They're tied to a user, so campaigns created through the API show who made them, and a token stops working as soon as that account is disabled. Changing `AUTH_SECRET` cancels every token and signs everyone out. After 10 wrong passwords, that address is locked for 15 minutes. An `API_KEY` in `.env` also works as a Bearer token if you set one.
+Tokens are signed with `AUTH_SECRET` (HS256). They're tied to a user and only see that account's workspace, and a token stops working as soon as that account is disabled. Changing `AUTH_SECRET` cancels every token and signs everyone out. After 10 wrong passwords, that address is locked for 15 minutes. An `API_KEY` in `.env` also works as a Bearer token if you set one; it always acts as the oldest member account and stops working if that account isn't active. The super admin has no API access.
 
 | Method | Path | Purpose |
 | --- | --- | --- |

@@ -92,7 +92,7 @@ Log out (`exit`) and back in, so Docker works without `sudo`.
 
 Before copying, open `deploy/server.env` on your laptop and fill in:
 
-- `ADMIN_EMAIL`: the email you'll use for the first account;
+- `ADMIN_EMAIL`: optional contact for push notifications (the super admin, created by the database migration, approves all sign-ups);
 - `VAPID_SUBJECT`: `mailto:` followed by your email.
 
 Then from your **laptop**, copy the project. This skips build output and your local data:

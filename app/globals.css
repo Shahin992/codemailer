@@ -69,6 +69,11 @@
 }
 
 @layer base {
+  /* Edge draws its own reveal button in password fields; PasswordInput has one that works everywhere. */
+  input::-ms-reveal,
+  input::-ms-clear {
+    display: none;
+  }
   *,
   ::before,
   ::after {

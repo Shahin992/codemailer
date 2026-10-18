@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import webpush from "web-push";
 import { db } from "@/lib/db";
 import { pushSubscriptions } from "@/lib/db/schema";
@@ -32,8 +32,12 @@ export async function saveSubscription(userId: string, sub: SubscriptionInput, u
   if (!/^https:\/\//.test(sub.endpoint) || !sub.p256dh || !sub.auth) throw new Error("Invalid push subscription");
   let ua = userAgent.slice(0, 300);
   if (replaces && replaces !== sub.endpoint) {
-    // Same device and browser: keep what was saved about it (e.g. that it's the installed app).
-    const [old] = await db.delete(pushSubscriptions).where(eq(pushSubscriptions.endpoint, replaces)).returning({ userAgent: pushSubscriptions.userAgent });
+    // Same device and browser: keep what was saved about it (e.g. that it's the installed app). Only this
+    // account's own row; another account's goes away by itself once the push service reports it expired.
+    const [old] = await db
+      .delete(pushSubscriptions)
+      .where(and(eq(pushSubscriptions.endpoint, replaces), eq(pushSubscriptions.userId, userId)))
+      .returning({ userAgent: pushSubscriptions.userAgent });
     if (old?.userAgent) ua = old.userAgent;
   }
   await db
@@ -54,10 +58,10 @@ function describePushError(status: number | undefined, body: string): string {
   return `The push service refused it${status ? ` (${status})` : ""}${body ? `: ${body.slice(0, 160)}` : "."}`;
 }
 
-/** Send to every subscribed browser and phone; drop subscriptions the push service says are gone. */
-export async function sendPushToAll(payload: PushPayload): Promise<PushResult[]> {
+/** Send to every browser and phone the account turned notifications on for; drop subscriptions the push service says are gone. */
+export async function sendPushToUser(userId: string, payload: PushPayload): Promise<PushResult[]> {
   if (!pushConfigured()) return [];
-  const subs = await db.select().from(pushSubscriptions);
+  const subs = await db.select().from(pushSubscriptions).where(eq(pushSubscriptions.userId, userId));
   return Promise.all(
     subs.map(async (sub): Promise<PushResult> => {
       const label = deviceLabel(sub.userAgent);
