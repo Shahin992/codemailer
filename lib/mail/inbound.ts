@@ -7,7 +7,7 @@ import { simpleParser, type ParsedMail } from "mailparser";
 import { db } from "@/lib/db";
 import { messages, recipients, replies, senders, suppressions, type AttachmentMeta, type Sender } from "@/lib/db/schema";
 import { extractReplyText, isAutoReply, isBounce, isOptOutReply, messageIdList, parseBounce, senderAddress } from "@/lib/mail/inbound-parse";
-import { sendPushToAll, snippet } from "@/lib/push";
+import { sendPushToUser, snippet } from "@/lib/push";
 import { storageDir } from "@/lib/storage";
 
 export type InboundResult = "reply" | "auto_reply" | "bounce" | "unsubscribe" | "ignored" | "duplicate";
@@ -15,10 +15,11 @@ export type InboundResult = "reply" | "auto_reply" | "bounce" | "unsubscribe" | 
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 const ADDRESS_MATCH_DAYS = 30;
 
+/** The email a reply or bounce quotes by Message-ID, whichever account sent it. */
 async function findMessageByHeaders(ids: string[]) {
   if (!ids.length) return undefined;
   const [row] = await db
-    .select({ id: messages.id, recipientId: messages.recipientId, status: messages.status })
+    .select({ id: messages.id, recipientId: messages.recipientId, status: messages.status, userId: messages.userId })
     .from(messages)
     .where(inArray(messages.messageIdHeader, ids))
     .orderBy(desc(messages.sentAt))
@@ -27,13 +28,14 @@ async function findMessageByHeaders(ids: string[]) {
 }
 
 /** The latest email to this person from this mailbox, or from a send-only mailbox whose replies come here. */
-async function findLatestMessageTo(email: string, senderId: string) {
+async function findLatestMessageTo(userId: string, email: string, senderId: string) {
   const [row] = await db
-    .select({ id: messages.id, recipientId: messages.recipientId, status: messages.status })
+    .select({ id: messages.id, recipientId: messages.recipientId, status: messages.status, userId: messages.userId })
     .from(messages)
     .innerJoin(recipients, eq(recipients.id, messages.recipientId))
     .where(
       and(
+        eq(messages.userId, userId),
         eq(recipients.email, email),
         sql`(${messages.senderId} = ${senderId} or ${messages.senderId} in (select ${senders.id} from ${senders} where ${senders.replyToSenderId} = ${senderId}))`,
         gt(messages.sentAt, sql`now() - make_interval(days => ${ADDRESS_MATCH_DAYS}::int)`),
@@ -46,8 +48,10 @@ async function findLatestMessageTo(email: string, senderId: string) {
 
 async function handleBounce(sender: Sender, parsed: ParsedMail, raw: string): Promise<InboundResult> {
   const info = parseBounce(raw, parsed.messageId);
-  let target = await findMessageByHeaders(info.originalMessageIds);
-  if (!target && info.recipient) target = await findLatestMessageTo(info.recipient, sender.id);
+  const quoted = await findMessageByHeaders(info.originalMessageIds);
+  if (quoted && quoted.userId !== sender.userId) return "ignored"; // another account's email (both read the same inbox)
+  let target = quoted;
+  if (!target && info.recipient) target = await findLatestMessageTo(sender.userId, info.recipient, sender.id);
   if (!target) return "ignored";
 
   const reason = [info.status, info.diagnostic].filter(Boolean).join(" ") || "Bounced";
@@ -65,15 +69,18 @@ async function handleBounce(sender: Sender, parsed: ParsedMail, raw: string): Pr
     .set({ status: "bounced" })
     .where(eq(recipients.id, target.recipientId))
     .returning({ email: recipients.email });
-  if (recipient) await db.insert(suppressions).values({ email: recipient.email, reason: "bounced" }).onConflictDoNothing();
+  if (recipient) await db.insert(suppressions).values({ userId: sender.userId, email: recipient.email, reason: "bounced" }).onConflictDoNothing();
   return "bounce";
 }
 
-/** The "mailto:…?subject=unsubscribe" option from the List-Unsubscribe header. */
-async function handleUnsubscribeEmail(email: string): Promise<InboundResult> {
-  const [person] = await db.select({ id: recipients.id }).from(recipients).where(eq(recipients.email, email));
+/** The "mailto:…?subject=unsubscribe" option from the List-Unsubscribe header. Applies to the mailbox's account. */
+async function handleUnsubscribeEmail(userId: string, email: string): Promise<InboundResult> {
+  const [person] = await db
+    .select({ id: recipients.id })
+    .from(recipients)
+    .where(and(eq(recipients.userId, userId), eq(recipients.email, email)));
   if (!person) return "ignored"; // not someone we emailed
-  await db.insert(suppressions).values({ email, reason: "unsubscribed" }).onConflictDoNothing();
+  await db.insert(suppressions).values({ userId, email, reason: "unsubscribed" }).onConflictDoNothing();
   await db.update(recipients).set({ status: "unsubscribed" }).where(eq(recipients.id, person.id));
   await db
     .update(messages)
@@ -104,10 +111,13 @@ export async function processInbound(sender: Sender, source: Buffer, folder: str
   if (!from || from.email === sender.email.toLowerCase()) return "ignored";
 
   if (isBounce(parsed)) return handleBounce(sender, parsed, source.toString("utf8"));
-  if (/^\s*unsubscribe\s*$/i.test(parsed.subject ?? "")) return handleUnsubscribeEmail(from.email);
+  if (/^\s*unsubscribe\s*$/i.test(parsed.subject ?? "")) return handleUnsubscribeEmail(sender.userId, from.email);
 
-  let target = await findMessageByHeaders(messageIdList(parsed));
-  if (!target) target = await findLatestMessageTo(from.email, sender.id);
+  const quoted = await findMessageByHeaders(messageIdList(parsed));
+  // It answers another account's email (both accounts read the same inbox), so it isn't this account's reply.
+  if (quoted && quoted.userId !== sender.userId) return "ignored";
+  let target = quoted;
+  if (!target) target = await findLatestMessageTo(sender.userId, from.email, sender.id);
   if (!target) return "ignored"; // not about anything we sent, e.g. normal support mail
 
   const auto = isAutoReply(parsed);
@@ -120,6 +130,7 @@ export async function processInbound(sender: Sender, source: Buffer, folder: str
     .insert(replies)
     .values({
       id: replyId,
+      userId: sender.userId,
       messageId: target.id,
       recipientId: target.recipientId,
       senderId: sender.id,
@@ -150,13 +161,13 @@ export async function processInbound(sender: Sender, source: Buffer, folder: str
 
   // "No thanks" / "stop" / "remove me": the reply-to-opt-out promise in personal-style emails.
   const optedOut = isOptOutReply(extractReplyText(bodyText));
-  if (optedOut) await handleUnsubscribeEmail(from.email);
+  if (optedOut) await handleUnsubscribeEmail(sender.userId, from.email);
 
   const [unread] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(replies)
-    .where(and(isNull(replies.readAt), eq(replies.isAutoReply, false)));
-  await sendPushToAll({
+    .where(and(eq(replies.userId, sender.userId), isNull(replies.readAt), eq(replies.isAutoReply, false)));
+  await sendPushToUser(sender.userId, {
     unread: unread?.n,
     title: optedOut ? `${from.name || from.email} opted out` : `Reply from ${from.name || from.email}`,
     body: optedOut

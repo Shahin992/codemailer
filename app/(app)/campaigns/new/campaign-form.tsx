@@ -550,7 +550,7 @@ export function CampaignForm({
 
   let step = 0;
   return (
-    <form onSubmit={submit} className="space-y-5">
+    <form method="post" onSubmit={submit} className="space-y-5">
       <Card className="p-4 md:p-5">
         <Field label="Campaign name" htmlFor="name" hint="Only you see this.">
           <Input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Dental clinics – October" required maxLength={200} />

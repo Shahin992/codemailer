@@ -3,6 +3,7 @@ import { and, asc, desc, eq, gt, isNull, sql } from "drizzle-orm";
 import { Plus } from "lucide-react";
 import { Time } from "@/components/client";
 import { Alert, ButtonLink, Card, CardHeader, EmptyState, PageHeader, Progress, Stat, StatusBadge } from "@/components/ui";
+import { requireSession } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { campaigns, messages, replies, senders } from "@/lib/db/schema";
 import { optionalEnv } from "@/lib/env";
@@ -14,22 +15,24 @@ import { PushToggle } from "./replies/push-toggle";
 const since = (days: number) => sql`now() - make_interval(days => ${days}::int)`;
 
 export default async function DashboardPage() {
+  const me = await requireSession();
   const [mailboxes, [day], [week], [unread], active, latest, jobs] = await Promise.all([
-    db.select({ sender: senders, sent24h: sentLast24h }).from(senders).orderBy(asc(senders.createdAt)),
-    db.select({ sent: sql<number>`count(*)::int` }).from(messages).where(gt(messages.sentAt, since(1))),
+    db.select({ sender: senders, sent24h: sentLast24h }).from(senders).where(eq(senders.userId, me.id)).orderBy(asc(senders.createdAt)),
+    db.select({ sent: sql<number>`count(*)::int` }).from(messages).where(and(eq(messages.userId, me.id), gt(messages.sentAt, since(1)))),
     db
       .select({
         sent: sql<number>`count(*) filter (where ${messages.sentAt} > now() - interval '7 days')::int`,
         bounced: sql<number>`count(*) filter (where ${messages.bouncedAt} > now() - interval '7 days')::int`,
         replied: sql<number>`count(*) filter (where ${messages.repliedAt} > now() - interval '7 days')::int`,
       })
-      .from(messages),
-    db.select({ n: sql<number>`count(*)::int` }).from(replies).where(and(isNull(replies.readAt), eq(replies.isAutoReply, false))),
-    db.select().from(campaigns).where(eq(campaigns.status, "active")).orderBy(desc(campaigns.createdAt)).limit(5),
+      .from(messages)
+      .where(eq(messages.userId, me.id)),
+    db.select({ n: sql<number>`count(*)::int` }).from(replies).where(and(eq(replies.userId, me.id), isNull(replies.readAt), eq(replies.isAutoReply, false))),
+    db.select().from(campaigns).where(and(eq(campaigns.userId, me.id), eq(campaigns.status, "active"))).orderBy(desc(campaigns.createdAt)).limit(5),
     db
       .select({ id: replies.id, fromEmail: replies.fromEmail, fromName: replies.fromName, replyText: replies.replyText, receivedAt: replies.receivedAt, readAt: replies.readAt })
       .from(replies)
-      .where(eq(replies.isAutoReply, false))
+      .where(and(eq(replies.userId, me.id), eq(replies.isAutoReply, false)))
       .orderBy(desc(replies.receivedAt))
       .limit(5),
     getJobStatus(),

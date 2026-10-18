@@ -1,6 +1,7 @@
 # docker compose up -d --build
 #   db       PostgreSQL (data kept in the "pgdata" volume)
-#   migrate  creates/updates tables before the app starts, then exits
+#   backup   saves the database to ./backups before every start (keeps the newest 10), then exits
+#   migrate  creates/updates tables before the app starts (only after a successful backup), then exits
 #   app      the Next.js app            → http://localhost:${APP_PORT:-3000} (this machine only)
 #   cron     calls the send job every minute and the inbox job every 5 minutes
 #   adminer  database browser           → http://localhost:${ADMINER_PORT:-8080} (this machine only)
@@ -25,6 +26,23 @@ services:
       timeout: 5s
       retries: 20
 
+  backup:
+    image: postgres:17-alpine
+    environment:
+      PGHOST: db
+      PGUSER: ${POSTGRES_USER:-email}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-email}
+      PGDATABASE: ${POSTGRES_DB:-email_sender}
+      BACKUP_OWNER: "${UID:-1000}:${GID:-1000}"
+    volumes:
+      - ./backups:/backups
+      - ./scripts/pre-start-backup.sh:/pre-start-backup.sh:ro
+    entrypoint: ["sh", "/pre-start-backup.sh"]
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
   migrate:
     build:
       context: .
@@ -36,8 +54,8 @@ services:
     volumes:
       - ./drizzle:/app/drizzle
     depends_on:
-      db:
-        condition: service_healthy
+      backup:
+        condition: service_completed_successfully
     restart: "no"
 
   app:

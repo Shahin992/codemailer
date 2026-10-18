@@ -1,8 +1,8 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { convert as htmlToText } from "html-to-text";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getSession } from "@/lib/auth";
+import { getMemberSession } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { senders, testSends } from "@/lib/db/schema";
 import { composeEmail } from "@/lib/mail/compose";
@@ -27,14 +27,15 @@ const schema = z.object({
 
 /** Send the campaign email, filled in for the first recipient, to your own address. */
 export async function POST(request: Request) {
-  if (!(await getSession())) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  const me = await getMemberSession();
+  if (!me) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid request" }, { status: 400 });
   const input = parsed.data;
 
-  const [sender] = await db.select().from(senders).where(eq(senders.id, input.senderId));
+  const [sender] = await db.select().from(senders).where(and(eq(senders.id, input.senderId), eq(senders.userId, me.id)));
   if (!sender) return NextResponse.json({ error: "Mailbox not found" }, { status: 404 });
-  const settings = await getSettings();
+  const settings = await getSettings(me.id);
 
   const isHtml = input.bodyFormat === "html";
   const sample = input.sample ?? { email: input.to, name: "" };

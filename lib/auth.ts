@@ -8,9 +8,9 @@ import { users } from "@/lib/db/schema";
 import { appUrl } from "@/lib/env";
 import { SESSION_COOKIE, SESSION_MAX_AGE, signSession, verifySession } from "@/lib/session-token";
 
-export type CurrentUser = { id: string; email: string; name: string; role: "admin" | "member" };
+export type CurrentUser = { id: string; email: string; name: string; role: "superadmin" | "member" };
 
-/** The signed-in user, or null. Disabled or unapproved accounts count as signed out. */
+/** The signed-in account (member or super admin), or null. Disabled or not-yet-approved accounts count as signed out. */
 export const getSession = cache(async (): Promise<CurrentUser | null> => {
   const store = await cookies();
   const token = await verifySession(store.get(SESSION_COOKIE)?.value);
@@ -23,15 +23,31 @@ export const getSession = cache(async (): Promise<CurrentUser | null> => {
   return { id: user.id, email: user.email, name: user.name, role: user.role };
 });
 
+/** The signed-in member, who has a workspace; null for the super admin, who has none. For route handlers. */
+export async function getMemberSession(): Promise<CurrentUser | null> {
+  const session = await getSession();
+  return session && session.role !== "superadmin" ? session : null;
+}
+
+/** A signed-in member, for workspace pages and actions. The super admin is sent to its own panel. */
 export async function requireSession(): Promise<CurrentUser> {
+  const session = await getSession();
+  if (!session) redirect("/login");
+  if (session.role === "superadmin") redirect("/superadmin");
+  return session;
+}
+
+/** Any signed-in account (member or super admin), e.g. to change its own password. */
+export async function requireUser(): Promise<CurrentUser> {
   const session = await getSession();
   if (!session) redirect("/login");
   return session;
 }
 
-export async function requireAdmin(): Promise<CurrentUser> {
-  const session = await requireSession();
-  if (session.role !== "admin") throw new Error("Only admins can do this.");
+/** The signed-in super admin; anyone else goes to the super admin sign-in page. */
+export async function requireSuperAdmin(): Promise<CurrentUser> {
+  const session = await getSession();
+  if (!session || session.role !== "superadmin") redirect("/superadmin/login");
   return session;
 }
 

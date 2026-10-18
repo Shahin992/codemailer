@@ -13,7 +13,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const [unread] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(replies)
-    .where(and(isNull(replies.readAt), eq(replies.isAutoReply, false)));
+    .where(and(eq(replies.userId, user.id), isNull(replies.readAt), eq(replies.isAutoReply, false)));
   return (
     <AppShell unreadReplies={unread?.n ?? 0} signOut={logout} user={{ name: user.name, email: user.email }} vapidPublicKey={optionalEnv("VAPID_PUBLIC_KEY") ?? ""}>
       {children}

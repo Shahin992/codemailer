@@ -4,6 +4,7 @@ import { removeSuppression } from "@/app/actions/settings";
 import { SubmitButton, Time } from "@/components/client";
 import { FilterChips, ListSearch, Pagination } from "@/components/pagination";
 import { Badge, Card, CardHeader, EmptyState, PageHeader } from "@/components/ui";
+import { requireSession } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { suppressions } from "@/lib/db/schema";
 import { clampPage, pageInfo, readPage } from "@/lib/pagination";
@@ -16,14 +17,15 @@ const REASONS = ["bounced", "unsubscribed", "manual"] as const;
 type Search = { q?: string; reason?: string; page?: string; size?: string };
 
 export default async function SuppressionsPage({ searchParams }: { searchParams: Promise<Search> }) {
+  const me = await requireSession();
   const search = await searchParams;
   const term = (search.q ?? "").trim().toLowerCase();
   const reason = REASONS.find((r) => r === search.reason);
-  const where = and(term ? ilike(suppressions.email, `%${term}%`) : undefined, reason ? eq(suppressions.reason, reason) : undefined);
+  const where = and(eq(suppressions.userId, me.id), term ? ilike(suppressions.email, `%${term}%`) : undefined, reason ? eq(suppressions.reason, reason) : undefined);
 
   const [[{ total }], byReason] = await Promise.all([
     db.select({ total: sql<number>`count(*)::int` }).from(suppressions).where(where),
-    db.select({ reason: suppressions.reason, n: sql<number>`count(*)::int` }).from(suppressions).groupBy(suppressions.reason),
+    db.select({ reason: suppressions.reason, n: sql<number>`count(*)::int` }).from(suppressions).where(eq(suppressions.userId, me.id)).groupBy(suppressions.reason),
   ]);
   const paging = clampPage(readPage(search, 50), total);
   const rows = await db

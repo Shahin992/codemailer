@@ -1,5 +1,5 @@
 // The logo shown with the email footer, like a signature. The image is checked by its content (not its name),
-// stored under STORAGE_DIR/brand with a name made from its hash, and embedded in each email as an inline
+// stored under STORAGE_DIR/brand/<account id> with a name made from its hash, and embedded in each email as an inline
 // image (cid:), so emails don't link to this server and the logo shows without "load images".
 
 import { createHash, randomUUID } from "node:crypto";
@@ -50,8 +50,8 @@ export function sniffImage(buf: Buffer): ImageInfo | null {
 
 export type StoredLogo = Pick<Settings, "logoFile" | "logoMime" | "logoBytes" | "logoWidth" | "logoHeight">;
 
-/** Check an uploaded logo and save it. Returns what to record in settings. */
-export async function saveLogo(buf: Buffer): Promise<StoredLogo> {
+/** Check an uploaded logo and save it in the account's own folder. Returns what to record in its settings. */
+export async function saveLogo(userId: string, buf: Buffer): Promise<StoredLogo> {
   if (buf.length > LOGO_MAX_BYTES) throw new LogoError(`The logo is ${(buf.length / 1024 / 1024).toFixed(1)} MB; it can be up to 1 MB.`);
   const info = sniffImage(buf);
   if (!info) throw new LogoError("Use a PNG, JPG or GIF image. Most email apps can't show SVG or WebP.");
@@ -59,8 +59,9 @@ export async function saveLogo(buf: Buffer): Promise<StoredLogo> {
     throw new LogoError(`The image is ${info.width}×${info.height} pixels; use one up to ${MAX_PIXELS} pixels on each side.`);
   }
   const name = `logo-${createHash("sha256").update(buf).digest("hex").slice(0, 24)}.${info.ext}`;
-  const relative = path.posix.join("brand", name);
-  const file = path.join(storageDir(), "brand", name);
+  // Each account has its own folder, so removing one account's logo never touches another's file.
+  const relative = path.posix.join("brand", userId, name);
+  const file = path.join(storageDir(), "brand", userId, name);
   await mkdir(path.dirname(file), { recursive: true });
   // Write to a temporary name first, so a half-written file is never used.
   const temp = `${file}.${randomUUID()}.tmp`;

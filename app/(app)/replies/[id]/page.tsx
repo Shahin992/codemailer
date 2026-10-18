@@ -7,6 +7,7 @@ import sanitizeHtml from "sanitize-html";
 import { markReplyUnread } from "@/app/actions/replies";
 import { SubmitButton, Time } from "@/components/client";
 import { Badge, Card, CardHeader, StatusBadge } from "@/components/ui";
+import { requireSession } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { emailPreviewDoc } from "@/lib/email-preview";
 import { campaigns, messages, recipients, replies, senders } from "@/lib/db/schema";
@@ -27,6 +28,7 @@ function formatSize(bytes: number) {
 }
 
 export default async function ReplyPage({ params }: { params: Promise<{ id: string }> }) {
+  const me = await requireSession();
   const { id } = await params;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
   const [row] = await db
@@ -45,7 +47,7 @@ export default async function ReplyPage({ params }: { params: Promise<{ id: stri
     .leftJoin(messages, eq(messages.id, replies.messageId))
     .leftJoin(campaigns, eq(campaigns.id, messages.campaignId))
     .leftJoin(recipients, eq(recipients.id, replies.recipientId))
-    .where(eq(replies.id, id));
+    .where(and(eq(replies.id, id), eq(replies.userId, me.id)));
   if (!row) notFound();
   const { reply } = row;
 
@@ -55,6 +57,7 @@ export default async function ReplyPage({ params }: { params: Promise<{ id: stri
     .from(replies)
     .where(
       and(
+        eq(replies.userId, me.id),
         reply.messageId ? eq(replies.messageId, reply.messageId) : and(isNull(replies.messageId), eq(replies.fromEmail, reply.fromEmail), eq(replies.senderId, reply.senderId)),
         or(eq(replies.isAutoReply, false), eq(replies.id, reply.id)),
       ),

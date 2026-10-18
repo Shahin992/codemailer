@@ -23,7 +23,7 @@ export function SettingsForm({ initial, zones, logo }: { initial: Values; zones:
   const { state, onSubmit, pending } = useActionForm<FormState>(saveSettings, {});
 
   return (
-    <form onSubmit={onSubmit} className="space-y-5">
+    <form method="post" onSubmit={onSubmit} className="space-y-5">
       <Card>
         <CardHeader title="Sending defaults" description="New campaigns start with these; each campaign can change them." />
         <div className="space-y-4 p-4 md:p-5">

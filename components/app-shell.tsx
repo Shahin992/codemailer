@@ -4,10 +4,12 @@ import { Ban, Ellipsis, Inbox, LayoutDashboard, LogOut, Mail, Send, Settings, Us
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
+import { removePushSubscription } from "@/app/actions/push";
 import { LiveUpdates } from "@/components/live-updates";
 import { PushSync } from "@/components/push-sync";
 import { cn } from "@/components/ui";
 import { APP_NAME_PARTS } from "@/lib/brand";
+import { existingEndpoint } from "@/lib/push-client";
 
 type NavItem = { href: string; label: string; icon: typeof Mail; badge?: number };
 
@@ -53,6 +55,16 @@ export function AppShell({
   const [moreOpen, setMoreOpen] = useState(false);
   useEffect(() => setMoreOpen(false), [pathname]);
 
+  // Someone else may sign in on this device next: stop this account's reply notifications reaching it and
+  // clear its unread count from the app icon. The next account to sign in registers the device again.
+  async function signOutHere() {
+    const endpoint = await existingEndpoint().catch(() => null);
+    if (endpoint) await removePushSubscription(endpoint).catch(() => {});
+    const nav = navigator as Navigator & { clearAppBadge?: () => Promise<void> };
+    await nav.clearAppBadge?.().catch(() => {});
+    await signOut();
+  }
+
   const main: NavItem[] = [
     { href: "/", label: "Dashboard", icon: LayoutDashboard },
     { href: "/campaigns", label: "Campaigns", icon: Send },
@@ -93,7 +105,7 @@ export function AppShell({
             );
           })}
         </nav>
-        <form action={signOut} className="border-t p-3">
+        <form action={signOutHere} className="border-t p-3">
           <div className="mb-1 min-w-0 px-3 py-1">
             <p className="truncate text-sm font-medium">{user.name}</p>
             <p className="truncate text-xs text-muted">{user.email}</p>
@@ -174,7 +186,7 @@ export function AppShell({
                 {item.label}
               </Link>
             ))}
-            <form action={signOut} className="mt-1 border-t pt-1">
+            <form action={signOutHere} className="mt-1 border-t pt-1">
               <button className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-base text-danger hover:bg-neutral-soft">
                 <LogOut className="size-5" aria-hidden />
                 <span className="min-w-0 text-left">

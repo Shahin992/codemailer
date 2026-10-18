@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getMemberSession } from "@/lib/auth";
 import { CampaignError, campaignInputSchema, createCampaign } from "@/lib/campaigns";
 
 // Dashboard campaign creation. A route handler (not a server action) so large CSV lists fit.
 // A list too big for one request starts as a draft ({ draft: true } with its first part); the rest is
 // added through /api/campaigns/:id/recipients, which starts the campaign with the last part.
 export async function POST(request: Request) {
-  const session = await getSession();
+  const session = await getMemberSession();
   if (!session) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   const body = await request.json().catch(() => null);
   if (!body) return NextResponse.json({ error: "The campaign could not be read. If the list is very large, reload the page and try again." }, { status: 400 });

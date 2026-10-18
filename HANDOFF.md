@@ -1,6 +1,6 @@
 # ColdMailer: handoff notes
 
-Last updated: Oct 17, 2026 (instant reply check and phone push diagnostics, timezones, phone layout, 50 MB CSV uploads in parts, slimmer Settings; before that reply notifications, set send times, AWS EC2 guide). Read this first in the next session.
+Last updated: Oct 18, 2026 (open sign-ups with a private workspace per account; before that instant reply check and phone push diagnostics, timezones, phone layout, 50 MB CSV uploads in parts, slimmer Settings; before that reply notifications, set send times, AWS EC2 guide). Read this first in the next session.
 
 ## Contents
 
@@ -27,6 +27,30 @@ Last updated: Oct 17, 2026 (instant reply check and phone push diagnostics, time
   - Alternative: **Google Cloud's free e2-micro**, [`docs/Deploy to Google Cloud.md`](docs/Deploy%20to%20Google%20Cloud.md).
   - Fallback: a Hostinger VPS (KVM 1, about $5–7/month).
 - **Docker build re-checked Oct 16:** images build cleanly (Next.js compile, TypeScript and 15 pages, no warnings); the stack starts; `migrate` reports "Database is up to date"; pages, 401s on API/cron without credentials, and security headers OK; the Caddyfile validates for the real domain. The running stack uses about 200 MB of RAM.
+- **Oct 18 (later): super admin approves every sign-up** (`npm run build` passes; checked with the test kit; migrations applied to the local Docker database, see below):
+  - **Super admin:** a third kind of account, `role = 'superadmin'`, seeded by migration `0011` as `shahin.khan.dev@gmail.com`. Only its scrypt hash is in the migration; the starting password was given by the user in chat, and the user changes it by hand in the panel's "Change your password" form after the first sign-in (no forced change, by the user's choice). It signs in at **`/superadmin/login`** and only sees **`/superadmin`**: accounts waiting / active / disabled, with Approve, Reject (deletes a sign-up), Disable, Enable and Delete (disabled accounts, with their whole workspace), plus its own password change. It has no workspace and no API access. Member pages send it to `/superadmin`.
+  - **No role leaks:** the member sign-in, the super admin sign-in and `POST /api/v1/auth/token` each give the other kind of account exactly the wrong-password answer (same message, delay and lockout counting), so no page reveals which address is the super admin.
+  - **Sign-up:** every new account is `pending` and can't sign in or use the API until approved. After signing up, a "Waiting for approval" popup says so; signing in before approval says the account is waiting. `ADMIN_EMAIL` no longer affects sign-up (only the push contact fallback).
+  - **Old admins** become ordinary members (migration `0011`); account management lives only in the super admin panel (Settings has no Accounts card any more).
+  - **`API_KEY`** acts as the oldest member account and is refused if it isn't active.
+  - **Password fields** all have a show/hide eye button (`PasswordInput` in `components/client.tsx`); Edge's own reveal button is hidden so there is only one.
+  - **Migration `0010` changed before release:** it no longer activates `pending` accounts; the super admin approves them.
+  - **Deploying is only `docker compose up -d --build`** (the user runs no other commands on the server). A new one-shot `backup` service (`postgres:17-alpine`, `scripts/pre-start-backup.sh`) saves the whole database to `./backups/auto-before-start-<time>.sql.gz` on every start and keeps the newest 10; `migrate` waits for it and doesn't run if the backup fails. Checked on the local Docker stack.
+  - **Local Docker database migrated Oct 18:** a manual backup first (`backups/before-superadmin-20261018-113711.sql.gz`), then `0008`–`0011`. Row counts in every table are unchanged; every mailbox, campaign, email, reply and settings row now belongs to `shahin@gmail.com` (still active, now a member); the super admin was added. A second `up` applied `0012` (column gone) after another automatic backup; counts still match (1 mailbox, 1 campaign, 2 emails, 1 reply).
+  - **Production:** the server starts with an empty database, so `0011` creates the super admin there too. Sign in at `/superadmin/login` right after deploying and change the password in the panel; then register your own working account at `/register` and approve it in the panel.
+- **Oct 18: open sign-ups, private workspaces** (checked with the test kit):
+  - **Why:** new users couldn't get in. Every sign-up after the first was saved as `pending` and refused at sign-in until an admin approved it, and all accounts shared one workspace, so approval was the only thing keeping strangers away from the mailboxes.
+  - **Now:** each account only sees its own mailboxes, campaigns, recipients, replies, do-not-send list, settings (footer, logo, send window) and reply notifications. The same person can be a recipient in two accounts.
+  - **Mailboxes** are unique per account, like recipients. Two accounts can connect the same address; each row has its own daily limit. Unique across all accounts was tried and dropped: anyone can point a "custom" mailbox at their own SMTP server, so it let an account claim someone else's address and find out which addresses were in use.
+  - **Disable** (super admin) stops sign-in, API tokens and that account's campaigns (the send job skips them). **Delete** removes a disabled account and its whole workspace.
+  - **API:** a JWT only sees its own account.
+  - **Replies:** a reply quoting another account's email is ignored, even when both accounts read the same inbox (tested with the same mailbox in two accounts).
+  - **Shared devices:** signing out removes that device's push subscription and clears the app-icon badge, so the next person doesn't get the previous account's reply notifications. Renewing a subscription only removes the caller's own old row.
+  - **Logo files** live in `STORAGE_DIR/brand/<account id>/`, so accounts never share a file. Older logos stay at `brand/logo-<hash>.<ext>` and keep working.
+  - **Forms** submitted by JavaScript now have `method="post"`. Before, a submit before the page finished loading fell back to GET and put the fields (including passwords) in the URL and the server log; this was seen on the sign-in page.
+  - **Isolation checks:** an independent code audit of every page, action and route found no cross-account read. A sweep as a second account (69 requests: every page, `/api/v1`, direct links to the admin's records, searches and write attempts) returned none of the admin's data.
+  - **Migration `0010`** gives all existing data to the first admin (on the local Docker database: `shahin@gmail.com`). It took about 10 s on the test kit's 300,000 emails.
+  - **Not built:** email verification (anyone can register any address), a sign-up rate limit or "close sign-ups" switch, and limits on where custom SMTP/IMAP hosts and push endpoints may point (a signed-in user can make the server connect to any host and see part of its reply).
 - **Oct 17 changes (not yet in the local Docker images or on a server; `npm run build` passes):**
   - **Phone push:** the user reported desktop Chrome gets reply notifications but the phone PWA gets **none**. Cause not yet known. Added: the app re-registers the device's push subscription every time it opens (`components/push-sync.tsx`), a `pushsubscriptionchange` handler in `sw.js`, and per-device delivery health in Settings → Reply notifications (sent / arrived / refused, from migration `0008`). Next step: open the app on the phone, press "Send test", and read that phone's line.
   - **Instant reply check:** `lib/jobs/inbox-watch.ts` (started by `instrumentation.ts`) keeps an IMAP IDLE connection per active mailbox; new inbox mail is checked within about 3 seconds (verified with the test kit). Cron's 5-minute check stays as the safety net and still covers the spam folder.
@@ -50,7 +74,7 @@ Last updated: Oct 17, 2026 (instant reply check and phone push diagnostics, time
 | Replies | Inbox job every 5 minutes, read-only (unread stays unread). Matches replies by `In-Reply-To`/`References`, else by address. Strips quoted history, saves attachments, flags auto-replies. **"No thanks / stop / unsubscribe / remove me" replies** put the person on the do-not-send list. Emailed "unsubscribe" requests do too. **Several replies from one person** to the same email are all kept: the reply page shows the whole conversation, the list tags them "reply 2 of 3", and the campaign and recipient pages show every one. |
 | Do-not-send | Bounces, unsubscribes and manual entries. Skipped in every campaign. |
 | Recipients | Paged list with search and status filter. Per-person timeline: which mailbox, when, what happened. |
-| Accounts | Register and login with JWT. The app always opens on the sign-in page; registering never signs you in, it returns to sign-in with a notice. The first account is admin (restricted to `ADMIN_EMAIL` if set); later sign-ups need admin approval. Team page, password change, rate-limited logins (10 failures → 15-minute lock). |
+| Accounts | Anyone can register, but the super admin (`/superadmin`, seeded by migration `0011`) must approve each account before it can sign in. Each member account is a private workspace (every owned table has `user_id`). Login with JWT. The app always opens on the sign-in page; registering never signs you in, it shows a "waiting for approval" popup. Password change, show/hide on password fields, rate-limited logins (10 failures → 15-minute lock). |
 | API | `/api/v1/*` with Bearer JWT (`POST /api/v1/auth/token`, or Settings → Create API token). Optional shared `API_KEY`. Paged lists return a `pagination` block. |
 | PWA | Installable app with an offline page. **Push notification for every reply**: sent with high urgency (no waiting for a sleeping phone) and stays on screen until clicked. An open ColdMailer tab refreshes its reply list and unread count and shows a banner when one arrives, and refreshes again when the tab is shown. On a computer, pushes arrive only while the browser is running. Fully responsive: sidebar on desktop, bottom tabs on phones. |
 | Pagination | Every growing list is paged at the database (LIMIT/OFFSET with a count), with search and filters in the URL. |
@@ -119,6 +143,9 @@ public/                 sw.js (push + offline), offline.html, icons/, brand/
   | `0007` | `messages.scheduled_at` (set send times) and `senders.rest_until` |
   | `0008` | Push delivery health per device (`last_sent_at`, `last_received_at`, `last_error`, `last_error_at`) |
   | `0009` | Email logo in `settings` (file, type, size, pixel size, display width, use in personal emails) |
+  | `0010` | Private workspaces: `user_id` on `senders`, `recipients`, `campaigns`, `messages`, `replies`, `suppressions` and `settings` (now keyed by `user_id`); mailboxes, recipients and the do-not-send list are unique per account. Hand-edited to give existing rows to the first admin. |
+  | `0011` | Super admin: sign-ups default to `pending`, old `admin` roles become `member`, and the super admin `shahin.khan.dev@gmail.com` is inserted (scrypt hash only). Hand-edited. |
+  | `0012` | Drops `users.must_change_password` where an earlier draft of `0011` added it (the local Docker and test databases); does nothing elsewhere. |
 
 - **Process:** change `lib/db/schema.ts`, then either:
   - run `docker compose up --build`, where the `migrate` container generates the migration file into `drizzle/` and applies it; or
@@ -187,7 +214,16 @@ Pages were checked in the browser pane at desktop and phone width.
 
 **Verified locally:**
 
-- **Accounts:** register, login, admin approval; JWT issue and every rejection case; rate limiting.
+- **Accounts:** register, login; JWT issue and every rejection case; rate limiting.
+- **Private workspaces (Oct 18, test kit):**
+  - **Sign-up:** a second account registers through the page, signs in at once and sees an empty workspace.
+  - **Isolation:** the admin's campaign, reply, mailbox, recipient and attachment links return 404 for it, both on pages and in `/api/v1`.
+  - **No borrowing:** it can't send from the admin's mailbox or follow up the admin's campaign.
+  - **Separate lists:** the admin's do-not-send list doesn't block it, and its unsubscribe lands only on its own list.
+  - **Its own settings:** its emails use its own footer.
+  - **Replies:** a reply to its email goes only to it, even though both mailboxes read the same test inbox (picked up by the instant watcher).
+  - **Disable:** a disabled account's campaign sends nothing until it's enabled again.
+  - **Migration:** `0010` ran on the test database (1 admin, 200,005 recipients, 300,006 emails).
 - **Mailboxes:** add and test a mailbox; wrong password; STARTTLS missing; send-only mailbox with Reply-To.
 - **Sending:** turns, gaps and daily limits; SMTP rejection → bounced; follow-up threading; merge fields with fallbacks; Personal-style format (`text/plain`, no unsubscribe header).
 - **Inbox:** bounce notices matched by Message-ID; replies by header and by address; opt-out replies → do-not-send; emailed unsubscribe; inbox stays unread.

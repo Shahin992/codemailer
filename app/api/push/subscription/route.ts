@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getSession } from "@/lib/auth";
+import { getMemberSession } from "@/lib/auth";
 import { saveSubscription } from "@/lib/push";
 
 const bodySchema = z.object({
@@ -14,7 +14,7 @@ const bodySchema = z.object({
  * (the "pushsubscriptionchange" event), so replies keep reaching that phone.
  */
 export async function POST(request: Request) {
-  const me = await getSession();
+  const me = await getMemberSession();
   if (!me) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   const parsed = bodySchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Invalid subscription" }, { status: 400 });

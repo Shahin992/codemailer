@@ -15,6 +15,7 @@ export async function GET(request: Request) {
   const status = STATUSES.find((s) => s === url.searchParams.get("status"));
   const q = (url.searchParams.get("q") ?? "").trim();
   const where = and(
+    eq(recipients.userId, caller.userId),
     status ? eq(recipients.status, status) : undefined,
     q ? or(ilike(recipients.email, `%${q}%`), ilike(recipients.name, `%${q}%`)) : undefined,
   );

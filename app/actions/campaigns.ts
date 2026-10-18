@@ -14,22 +14,22 @@ function refresh(id: string) {
 }
 
 export async function setCampaignStatus(id: string, status: "active" | "paused") {
-  await requireSession();
+  const me = await requireSession();
   await db
     .update(campaigns)
     .set({ status })
-    .where(and(eq(campaigns.id, id), inArray(campaigns.status, ["active", "paused"])));
+    .where(and(eq(campaigns.id, id), eq(campaigns.userId, me.id), inArray(campaigns.status, ["active", "paused"])));
   refresh(id);
 }
 
 export async function cancelCampaign(id: string) {
-  await requireSession();
+  const me = await requireSession();
   await db.transaction(async (tx) => {
     await tx
       .update(messages)
       .set({ status: "cancelled", error: "Campaign cancelled", updatedAt: new Date() })
-      .where(and(eq(messages.campaignId, id), eq(messages.status, "queued")));
-    await tx.update(campaigns).set({ status: "cancelled", completedAt: new Date() }).where(eq(campaigns.id, id));
+      .where(and(eq(messages.campaignId, id), eq(messages.userId, me.id), eq(messages.status, "queued")));
+    await tx.update(campaigns).set({ status: "cancelled", completedAt: new Date() }).where(and(eq(campaigns.id, id), eq(campaigns.userId, me.id)));
   });
   refresh(id);
 }
@@ -39,7 +39,7 @@ export async function cancelCampaign(id: string) {
  * A set time goes out at that time, inside or outside the send window (daily limits still apply).
  */
 export async function setEmailSendTime(messageId: string, sendAt: string | null): Promise<{ error?: string }> {
-  await requireSession();
+  const me = await requireSession();
   if (!/^[0-9a-f-]{36}$/i.test(messageId)) return { error: "Email not found" };
   let at: Date | null = null;
   if (sendAt !== null) {
@@ -52,7 +52,7 @@ export async function setEmailSendTime(messageId: string, sendAt: string | null)
     .update(messages)
     // A chosen time also replaces any retry wait.
     .set({ scheduledAt: at, ...(at ? { nextAttemptAt: null } : {}), updatedAt: new Date() })
-    .where(and(eq(messages.id, messageId), eq(messages.status, "queued")))
+    .where(and(eq(messages.id, messageId), eq(messages.userId, me.id), eq(messages.status, "queued")))
     .returning({ campaignId: messages.campaignId });
   if (!row) return { error: "This email isn't waiting any more: it was sent or cancelled." };
   refresh(row.campaignId);
@@ -62,18 +62,18 @@ export async function setEmailSendTime(messageId: string, sendAt: string | null)
 
 /** Put failed emails back in the queue (for example after fixing a mailbox). */
 export async function retryFailed(id: string) {
-  await requireSession();
+  const me = await requireSession();
   await db.transaction(async (tx) => {
     const rows = await tx
       .update(messages)
       .set({ status: "queued", attempts: 0, nextAttemptAt: null, error: null, updatedAt: new Date() })
-      .where(and(eq(messages.campaignId, id), eq(messages.status, "failed")))
+      .where(and(eq(messages.campaignId, id), eq(messages.userId, me.id), eq(messages.status, "failed")))
       .returning({ id: messages.id });
     if (rows.length) {
       await tx
         .update(campaigns)
         .set({ status: "active", completedAt: null })
-        .where(and(eq(campaigns.id, id), inArray(campaigns.status, ["done", "active", "paused"])));
+        .where(and(eq(campaigns.id, id), eq(campaigns.userId, me.id), inArray(campaigns.status, ["done", "active", "paused"])));
     }
   });
   refresh(id);
@@ -81,8 +81,8 @@ export async function retryFailed(id: string) {
 
 /** Throw away a campaign whose list upload didn't finish. Only drafts: nothing of theirs was ever sent. */
 export async function discardDraftCampaign(id: string, returnTo?: string) {
-  await requireSession();
-  await db.delete(campaigns).where(and(eq(campaigns.id, id), eq(campaigns.status, "draft")));
+  const me = await requireSession();
+  await db.delete(campaigns).where(and(eq(campaigns.id, id), eq(campaigns.userId, me.id), eq(campaigns.status, "draft")));
   revalidatePath("/campaigns");
   if (returnTo) redirect(returnTo);
 }

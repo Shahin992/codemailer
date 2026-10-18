@@ -16,6 +16,7 @@ export async function GET(request: Request) {
   const status = STATUSES.find((s) => s === url.searchParams.get("status"));
   const q = (url.searchParams.get("q") ?? "").trim();
   const where = and(
+    eq(campaigns.userId, caller.userId),
     status ? eq(campaigns.status, status) : undefined,
     q ? or(ilike(campaigns.name, `%${q}%`), ilike(campaigns.subject, `%${q}%`)) : undefined,
   );
@@ -89,7 +90,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "senders: list the mailbox emails to send from (GET /api/v1/senders)" }, { status: 400 });
   }
   try {
-    const result = await createCampaign(parsed.data, "api", caller.userId ?? undefined);
+    const result = await createCampaign(parsed.data, "api", caller.userId);
     return NextResponse.json(
       {
         campaign_id: result.campaignId,

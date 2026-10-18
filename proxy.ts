@@ -5,6 +5,7 @@ import { SESSION_COOKIE, verifySession } from "@/lib/session-token";
 const PUBLIC_PATHS = [
   /^\/login(\/|$)/,
   /^\/register(\/|$)/,
+  /^\/superadmin\/login(\/|$)/,
   /^\/api\/v1\//,
   /^\/api\/cron\//,
   /^\/api\/unsubscribe\//,
@@ -24,6 +25,7 @@ export async function proxy(request: NextRequest) {
   if (pathname.startsWith("/api/")) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }
+  if (pathname === "/superadmin" || pathname.startsWith("/superadmin/")) return NextResponse.redirect(new URL("/superadmin/login", request.url));
   const login = new URL("/login", request.url);
   if (pathname !== "/") login.searchParams.set("next", `${pathname}${search}`);
   return NextResponse.redirect(login);

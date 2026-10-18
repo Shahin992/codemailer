@@ -1,4 +1,4 @@
-import { asc } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { authenticateApi } from "@/lib/api";
 import { db } from "@/lib/db";
@@ -21,6 +21,7 @@ export async function GET(request: Request) {
       last_error: senders.lastError,
     })
     .from(senders)
+    .where(eq(senders.userId, caller.userId))
     .orderBy(asc(senders.createdAt));
   return NextResponse.json({ senders: rows });
 }

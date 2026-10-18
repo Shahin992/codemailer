@@ -30,13 +30,16 @@ export type Security = (typeof SECURITY)[number];
 export const MESSAGE_STATUSES = ["queued", "sending", "sent", "bounced", "replied", "failed", "cancelled"] as const;
 export type MessageStatus = (typeof MESSAGE_STATUSES)[number];
 
-// People who can sign in. The first account is the admin; later sign-ups wait for an admin's approval.
+// People who can sign in. Anyone can sign up, but a new account stays "pending" (can't sign in) until the
+// super admin approves it. Each member account has its own private workspace (mailboxes, campaigns,
+// recipients, replies, do-not-send list and settings). The super admin has no workspace: it signs in on
+// /superadmin/login and only approves, disables and removes accounts.
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
   email: text("email").notNull().unique(), // stored lower-case
   name: text("name").notNull(),
   passwordHash: text("password_hash").notNull(), // scrypt
-  role: text("role", { enum: ["admin", "member"] }).notNull().default("member"),
+  role: text("role", { enum: ["superadmin", "member"] }).notNull().default("member"),
   status: text("status", { enum: ["active", "pending", "disabled"] }).notNull().default("pending"),
   lastLoginAt: timestamp("last_login_at", tz),
   createdAt: timestamp("created_at", tz).notNull().defaultNow(),
@@ -45,7 +48,8 @@ export const users = pgTable("users", {
 // Your mailboxes: Hostinger, Gmail, or any SMTP server (optionally with IMAP for replies)
 export const senders = pgTable("senders", {
   id: uuid("id").primaryKey().defaultRandom(),
-  email: text("email").notNull().unique(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }), // the account it belongs to
+  email: text("email").notNull(), // unique per account; the same mailbox may be connected to two accounts
   displayName: text("display_name"),
   provider: text("provider", { enum: PROVIDERS }).notNull(),
   smtpHost: text("smtp_host").notNull(),
@@ -74,12 +78,13 @@ export const senders = pgTable("senders", {
   imapState: jsonb("imap_state").$type<ImapState>().notNull().default(sql`'{}'::jsonb`),
   lastCheckedAt: timestamp("last_checked_at", tz),
   createdAt: timestamp("created_at", tz).notNull().defaultNow(),
-});
+}, (t) => [uniqueIndex("senders_user_email_idx").on(t.userId, t.email)]);
 
 // Everyone you have emailed, and the mailbox that always emails them
 export const recipients = pgTable("recipients", {
   id: uuid("id").primaryKey().defaultRandom(),
-  email: text("email").notNull().unique(), // stored lower-case
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }), // the account it belongs to
+  email: text("email").notNull(), // stored lower-case
   name: text("name"),
   senderId: uuid("sender_id").references(() => senders.id, { onDelete: "set null" }),
   status: text("status", { enum: ["active", "replied", "bounced", "unsubscribed"] }).notNull().default("active"),
@@ -87,12 +92,14 @@ export const recipients = pgTable("recipients", {
   lastContactAt: timestamp("last_contact_at", tz),
   createdAt: timestamp("created_at", tz).notNull().defaultNow(),
 }, (t) => [
+  uniqueIndex("recipients_user_email_idx").on(t.userId, t.email),
   index("recipients_last_contact_idx").on(t.lastContactAt),
   index("recipients_status_idx").on(t.status),
 ]);
 
 export const campaigns = pgTable("campaigns", {
   id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }), // the account it belongs to
   name: text("name").notNull(),
   subject: text("subject").notNull(),
   bodyFormat: text("body_format", { enum: ["text", "html"] }).notNull().default("text"),
@@ -114,7 +121,7 @@ export const campaigns = pgTable("campaigns", {
   createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", tz).notNull().defaultNow(),
   completedAt: timestamp("completed_at", tz),
-}, (t) => [index("campaigns_created_idx").on(t.createdAt)]);
+}, (t) => [index("campaigns_created_idx").on(t.createdAt), index("campaigns_user_created_idx").on(t.userId, t.createdAt)]);
 
 // Mailboxes chosen for a campaign
 export const campaignSenders = pgTable(
@@ -131,6 +138,7 @@ export const messages = pgTable(
   "messages",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }), // always the campaign's account
     campaignId: uuid("campaign_id").notNull().references(() => campaigns.id, { onDelete: "cascade" }),
     recipientId: uuid("recipient_id").notNull().references(() => recipients.id),
     senderId: uuid("sender_id").references(() => senders.id),
@@ -160,6 +168,7 @@ export const messages = pgTable(
     index("messages_recipient_idx").on(t.recipientId),
     index("messages_campaign_sent_idx").on(t.campaignId, t.sentAt),
     index("messages_recipient_created_idx").on(t.recipientId, t.createdAt),
+    index("messages_user_sent_idx").on(t.userId, t.sentAt),
   ],
 );
 
@@ -168,6 +177,7 @@ export const replies = pgTable(
   "replies",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }), // always the mailbox's account
     messageId: uuid("message_id").references(() => messages.id, { onDelete: "set null" }),
     recipientId: uuid("recipient_id").references(() => recipients.id),
     senderId: uuid("sender_id").notNull().references(() => senders.id),
@@ -189,6 +199,7 @@ export const replies = pgTable(
     index("replies_received_idx").on(t.receivedAt),
     index("replies_message_idx").on(t.messageId),
     index("replies_recipient_idx").on(t.recipientId),
+    index("replies_user_received_idx").on(t.userId, t.receivedAt),
   ],
 );
 
@@ -216,15 +227,16 @@ export const testSends = pgTable(
   (t) => [index("test_sends_sender_sent_idx").on(t.senderId, t.sentAt)],
 );
 
-// Do-not-send list (never emailed again)
+// Do-not-send list (never emailed again by that account)
 export const suppressions = pgTable(
   "suppressions",
   {
-    email: text("email").primaryKey(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
     reason: text("reason", { enum: ["bounced", "unsubscribed", "manual"] }).notNull(),
     createdAt: timestamp("created_at", tz).notNull().defaultNow(),
   },
-  (t) => [index("suppressions_created_idx").on(t.createdAt)],
+  (t) => [primaryKey({ columns: [t.userId, t.email] }), index("suppressions_created_idx").on(t.createdAt)],
 );
 
 // Browsers and phones that get reply notifications
@@ -244,9 +256,9 @@ export const pushSubscriptions = pgTable("push_subscriptions", {
   lastErrorAt: timestamp("last_error_at", tz),
 });
 
-// App-wide settings (a single row with id = 1)
+// Each account's settings (one row per account, made on first use)
 export const settings = pgTable("settings", {
-  id: integer("id").primaryKey().default(1),
+  userId: uuid("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
   footerText: text("footer_text").notNull().default(""),
   // Personal-style emails end with this instead of an unsubscribe link.
   optOutLine: text("opt_out_line").notNull().default("If this isn't relevant to you, just reply \"no\" and I won't email you again."),
