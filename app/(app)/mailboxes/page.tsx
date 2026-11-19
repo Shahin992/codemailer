@@ -9,6 +9,9 @@ import { db } from "@/lib/db";
 import { senders } from "@/lib/db/schema";
 import { sentLast24h } from "@/lib/queries";
 import { PROVIDER_PRESETS } from "@/lib/providers";
+import { getSettings } from "@/lib/settings";
+import { warmupDay } from "@/lib/warmup/schedule";
+import { warmupSummaries } from "@/lib/warmup/status";
 
 export const metadata: Metadata = { title: "Mailboxes" };
 
@@ -19,7 +22,11 @@ export default async function MailboxesPage() {
     .from(senders)
     .where(eq(senders.userId, me.id))
     .orderBy(asc(senders.createdAt));
-  const capacity = rows.filter((r) => r.sender.status === "active").reduce((sum, r) => sum + r.sender.dailyLimit, 0);
+  const capacity = rows
+    .filter((r) => r.sender.status === "active" && r.sender.warmupRole !== "partner")
+    .reduce((sum, r) => sum + r.sender.dailyLimit, 0);
+  const settings = await getSettings(me.id);
+  const warmup = rows.some((r) => r.sender.warmupEnabled) ? await warmupSummaries(me.id, settings.timezone) : new Map();
 
   return (
     <>
@@ -68,7 +75,23 @@ export default async function MailboxesPage() {
               <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted">
                 <Badge>{PROVIDER_PRESETS[sender.provider].label}</Badge>
                 {!sender.readInbox && <Badge tone="warning">send-only</Badge>}
-                {sender.status === "active" && (
+                {sender.warmupRole === "partner" ? (
+                  <Badge tone="primary">{sender.warmupEnabled ? "Warm-up partner" : "Warm-up partner (off)"}</Badge>
+                ) : (
+                  sender.warmupEnabled && (
+                    <Badge tone="primary">
+                      Warm-up day {sender.warmupStartedAt ? warmupDay(sender.warmupStartedAt, new Date(), settings.timezone) : 1}
+                      {warmup.get(sender.id)?.sentToday ? ` · ${warmup.get(sender.id)!.sentToday} today` : ""}
+                    </Badge>
+                  )
+                )}
+                {/* Its own emails landing in spam; for a partner those are only its replies, so it isn't shown there. */}
+                {sender.warmupRole !== "partner" && (warmup.get(sender.id)?.spam7d ?? 0) > 0 && (
+                  <Badge tone="warning">
+                    {warmup.get(sender.id)!.spam7d} of {warmup.get(sender.id)!.found7d} in spam
+                  </Badge>
+                )}
+                {sender.status === "active" && sender.warmupRole !== "partner" && (
                   <span>
                     Next turn <Time value={sender.nextSendAt} mode="relative" />
                   </span>

@@ -92,6 +92,13 @@
       "when": 1792302059006,
       "tag": "0012_drop_must_change_password",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1795071499494,
+      "tag": "0013_mailbox_warmup",
+      "breakpoints": true
     }
   ]
 }

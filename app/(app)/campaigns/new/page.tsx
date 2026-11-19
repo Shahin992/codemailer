@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, ne, sql } from "drizzle-orm";
 import { ArrowLeft } from "lucide-react";
 import { Alert, ButtonLink, Card, EmptyState, PageHeader } from "@/components/ui";
 import { db } from "@/lib/db";
@@ -66,7 +66,8 @@ export default async function NewCampaignPage({ searchParams }: { searchParams: 
         dailyLimit: senders.dailyLimit,
       })
       .from(senders)
-      .where(eq(senders.userId, me.id))
+      // Warm-up partner mailboxes never send campaigns.
+      .where(and(eq(senders.userId, me.id), ne(senders.warmupRole, "partner")))
       .orderBy(asc(senders.createdAt)),
     followUp ? followUpInfo(me.id, followUp) : Promise.resolve(null),
   ]);

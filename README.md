@@ -12,7 +12,8 @@ ColdMailer sends email campaigns through your Hostinger business mailboxes, Gmai
 
   An email with a set time goes out at that time, even outside the send window, but never over a mailbox's daily limit.
 - **Tracking:** sent, bounced and replied, plus optional opens and clicks. Hard bounces and unsubscribes go on the do-not-send list automatically.
-- **Replies:** the app keeps an IMAP IDLE connection to each active inbox, so a reply is picked up within seconds and pushed to your phone; a full check (inbox and spam folder) also runs every 5 minutes. Read-only, so unread mail stays unread. Replies are matched to the exact email they answer.
+- **Replies:** the app keeps an IMAP IDLE connection to each active inbox, so a reply is picked up within seconds and pushed to your phone; a full check (inbox and spam folder) also runs every 5 minutes. Read-only, so unread mail stays unread (only warm-up emails are marked read). Replies are matched to the exact email they answer.
+- **Warm-up:** switch it on for several mailboxes and they email each other and reply in the same thread, a few more each day, so new addresses build a normal history. Your own Gmail accounts can join as **partners** that only receive and reply. Warm-up emails that land in spam (Gmail's included) are moved back to the inbox and counted. See [Mailbox warm-up](#mailbox-warm-up).
 - **Follow-ups:** reply in the same thread, from the same mailbox, to everyone who hasn't answered.
 - **Accounts:** anyone can sign up with their email address; the account can be used once the **super admin** approves it. Each account is a private workspace: its own mailboxes, campaigns, recipients, replies, do-not-send list, settings and reply notifications. The super admin signs in at `/superadmin/login` and approves, rejects, disables (a disabled account can't sign in and its campaigns stop sending) and deletes accounts; it has no workspace of its own. Logins and API access use JWTs.
 
@@ -119,6 +120,38 @@ When you add a mailbox, ColdMailer:
 
 Start daily limits low (Hostinger about 20, Gmail about 10) and raise them slowly.
 
+## Mailbox warm-up
+
+New mailboxes have no history, and mail providers distrust addresses that only ever send. Warm-up gives them a history of ordinary sent **and** received mail before (and while) they send campaigns.
+
+**Turn it on:** open a mailbox (Mailboxes → the address) → **Warm-up** → **Turn on warm-up**. Do it for every mailbox that should take part. The mailboxes with warm-up on in one account form a pool and email each other; warm-up never crosses accounts, and a mailbox needs an inbox ColdMailer reads (IMAP).
+
+**What happens:**
+
+- **Each day** every warm-up mailbox sends new emails to the others at random times inside the account's send window (Settings → Sending defaults). Day 1 is 2 emails, then 2 more each day, up to 30 a day (reached on day 15). You can change the start, the daily increase, the maximum and the reply rate per mailbox.
+- **The emails** are short, ordinary workplace notes (a meeting time, a document, a quick question), plain text, no links. Subjects and texts are put together from many parts, so no two are the same.
+- **Replies:** a mailbox answers about 35% of the warm-up emails it gets, 15 minutes to 3 hours later, in the same thread (`Re:` subject, `In-Reply-To`/`References`, the earlier email quoted). Some threads get an answer back, up to 3 emails.
+- **On the receiving side** the inbox check recognises warm-up emails by their `Message-ID` (nothing visible is added to the email), marks them read, and moves any that landed in **spam** back to the inbox. How often a mailbox's emails land in spam is the main health signal.
+- **Daily limit:** warm-up emails count toward the mailbox's daily limit together with campaign and test emails. If warm-up at its maximum could fill the limit, the mailbox page warns you; raise the daily limit or lower the warm-up maximum.
+- **Kept apart:** warm-up emails never appear in Replies, reply notifications, campaign numbers, Recipients or the do-not-send list.
+
+**The mailbox page shows:** the warm-up day and today's goal, sent today (new and replies), received today, replies in the last 7 days, how many of its emails landed in spam and were moved back, emails not found yet, and the latest warm-up emails. The Mailboxes list shows the warm-up day and a warning badge when some of its emails landed in spam.
+
+**Turning it off** cancels that mailbox's waiting warm-up emails. Turning it on again continues the ramp where it stopped.
+
+### Partner mailboxes (your own Gmail accounts)
+
+Warm-up only between mailboxes on one provider (for example all on Hostinger) never leaves that provider, so Gmail never sees it. Gmail accounts you can sign in to fix that: add them as **partners**. Your business mailboxes send to them, and ColdMailer, signed in to each Gmail over IMAP/SMTP, finds the warm-up email (in the inbox or in `[Gmail]/Spam`), moves it out of spam, marks it read, now and then stars it or marks it important, and replies in the same thread 20 minutes to 5 hours later.
+
+- **Set up each Gmail account** (in the Google account, not in ColdMailer): turn on **2-Step Verification**; create an **App password** at `myaccount.google.com/apppasswords`; in Gmail → Settings → *Forwarding and POP/IMAP*, make sure **IMAP** is on.
+- **Add it:** Mailboxes → Add mailbox → **Gmail**, with the Gmail address and the 16-character app password. Then on its page → Warm-up → *Takes part as* → **Partner (only receives and replies)** → Save, and **Turn on warm-up**.
+- **Low volume:** a partner gets at most 3 new warm-up emails a day (changeable, 1–10), shared fairly among your business mailboxes, so each business mailbox lands in Gmail every day and the Gmail account still looks like a person's.
+- **Partners never start threads and never send campaigns:** they aren't offered as campaign senders, and a campaign email to one of your partner addresses is cancelled. A mailbox a campaign already uses can't become a partner.
+- **Status:** each business mailbox's page shows **In Gmail spam, 7 days** (how many of its emails Gmail put in spam, and how many were moved back), apart from spam at your other mailboxes. That Gmail figure is the real inbox-placement signal. A partner's page shows what it received, its replies and what it moved out of its spam.
+- Only add accounts ColdMailer can sign in to. Warm-up never sends to an address it can't read and reply from.
+
+Warm-up helps; it doesn't replace SPF, DKIM, DMARC, low volumes and good content.
+
 ## Big lead lists
 
 On New campaign → Recipients → **CSV or Google Sheet**:
@@ -206,7 +239,7 @@ Tokens are signed with `AUTH_SECRET` (HS256). They're tied to a user and only se
 | `GET` | `/api/v1/replies?since=<ISO date>` | Replies, newest first (paged) |
 | `GET` | `/api/v1/recipients?status=&q=` | Everyone you've emailed (paged) |
 | `GET` | `/api/v1/recipients/lookup?email=` | One person's full history |
-| `GET` | `/api/v1/senders` | Mailboxes and today's usage |
+| `GET` | `/api/v1/senders` | Mailboxes and usage in the last 24 hours (campaign, warm-up and test emails) |
 
 Paged lists take `page` (from 1) and `page_size` (default 50, up to 200). They return a `pagination` block: `{"page", "page_size", "total", "total_pages", "has_more"}`. A page past the end returns the last page.
 
@@ -226,6 +259,7 @@ app/login, register sign in and sign up
 app/api/            campaign creation, Google Sheets import, cron jobs, public API, unsubscribe
 app/t/  app/u/      open pixel and click redirect; unsubscribe page
 lib/jobs/           send job (turns, limits, retries) and inbox job (replies, bounces)
+lib/warmup/         mailbox warm-up: daily plan, sending, receiving side, email texts, status numbers
 lib/mail/           SMTP/IMAP connection, email building, reply and bounce parsing
 lib/db/schema.ts    database tables (Drizzle ORM); migrations in drizzle/
 lib/brand.ts        app name

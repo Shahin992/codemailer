@@ -145,3 +145,33 @@ export function zonedInputToDate(value: string, timeZone: string): Date | null {
   t = wall - zoneOffsetMinutes(new Date(t), timeZone) * 60_000;
   return Number.isNaN(t) ? null : new Date(t);
 }
+
+/** The calendar date on the clock in `timeZone`, as "YYYY-MM-DD". */
+export function localDate(date: Date, timeZone: string): string {
+  const w = wallClock(date, timeZone);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${w.year}-${pad(w.month)}-${pad(w.day)}`;
+}
+
+/** Whole days from one "YYYY-MM-DD" to another (0 for the same day). */
+export function daysBetween(from: string, to: string): number {
+  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
+}
+
+function addDays(day: string, n: number): string {
+  return new Date(Date.parse(`${day}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+}
+
+/**
+ * The send window that opens on a local date: its start and end moments. Equal start and end means all day;
+ * an end before the start (22:00–06:00) runs into the next day. Null on a weekend when the window is weekdays only.
+ */
+export function windowOnDay(day: string, w: SendWindow): { start: Date; end: Date } | null {
+  const weekday = new Date(`${day}T12:00:00Z`).getUTCDay();
+  if (w.weekdaysOnly && (weekday === 0 || weekday === 6)) return null;
+  const allDay = w.windowStart === w.windowEnd;
+  const start = zonedInputToDate(`${day}T${allDay ? "00:00" : w.windowStart}`, w.timezone);
+  const endDay = allDay || parseHm(w.windowEnd) < parseHm(w.windowStart) ? addDays(day, 1) : day;
+  const end = zonedInputToDate(`${endDay}T${allDay ? "00:00" : w.windowEnd}`, w.timezone);
+  return start && end && end > start ? { start, end } : null;
+}

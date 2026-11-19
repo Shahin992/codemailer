@@ -1,6 +1,6 @@
 # ColdMailer: handoff notes
 
-Last updated: Oct 18, 2026 (open sign-ups with a private workspace per account; before that instant reply check and phone push diagnostics, timezones, phone layout, 50 MB CSV uploads in parts, slimmer Settings; before that reply notifications, set send times, AWS EC2 guide). Read this first in the next session.
+Last updated: Nov 19, 2026 (mailbox warm-up; before that, Oct 18: open sign-ups with a private workspace per account and super admin approval; before that instant reply check and phone push diagnostics, timezones, phone layout, 50 MB CSV uploads in parts, slimmer Settings; before that reply notifications, set send times, AWS EC2 guide). Read this first in the next session.
 
 ## Contents
 
@@ -18,6 +18,30 @@ Last updated: Oct 18, 2026 (open sign-ups with a private workspace per account; 
 12. [How to work on it in the next session](#12-how-to-work-on-it-in-the-next-session)
 
 ## 1. Where things stand
+
+- **Live since Oct 23** on AWS EC2 (`52.64.104.27`, app in `~/coldmailer`) at **https://coldmailer.shahinkhan.online**. Production has migrations `0000`–`0012`; the user reset the production database on Nov 19. Parts of this file below were written before deploying.
+- **Nov 19: mailbox warm-up** (not deployed yet; `npm run build` passes; checked end to end with the test kit). Migration **`0013`** must reach the server: deploying (`docker compose up -d --build`) backs up the database and applies it.
+  - **Why:** the user has 6 new Hostinger business mailboxes (3 domains/subdomains, 2 mailboxes each) and wants them to warm each other up.
+  - **Switch** per mailbox (mailbox page → Warm-up). The pool is that account's mailboxes with warm-up on; never across accounts. Needs a mailbox whose inbox is read (IMAP).
+  - **Ramp:** day 1 = 2 new emails, +2 a day, up to 30 (day 15); reply rate 35%. All four editable per mailbox. New emails at random times inside the account's send window (Settings), planned once a day on the account's clock; weekends skipped when the window is weekdays only.
+  - **Threads:** replies 15 min – 3 h after the email is found, `Re:` + `In-Reply-To`/`References`, the earlier email quoted; at most 3 emails per thread.
+  - **Receiving side:** recognised by `Message-ID` (stored before sending; no visible marker), marked read, moved out of spam back to INBOX; how often a mailbox's emails land in spam is the health signal.
+  - **Kept apart:** own table `warmup_messages`, so warm-up never reaches Replies, push, campaign numbers, recipients or the do-not-send list. Warm-up sends count toward the daily limit with campaign and test emails (`sentLast24h`).
+  - **Status view** on the mailbox page (day, today's goal, sent today, received, replies, landed in spam / moved back, not found yet, recent warm-up emails) and a badge on the Mailboxes list.
+  - **Partner mailboxes:** the user also has **10 Gmail accounts** they can sign in to (and other Gmail addresses they can't; nothing sends warm-up mail to those). Per mailbox, *Takes part as* → **Partner**: it only receives (at most `warmup_receive_max`, default 3, new warm-up emails a day, shared fairly among the business mailboxes) and replies 20 min – 5 h later; it never starts threads, now and then stars or marks important (Gmail label), moves warm-up mail out of `[Gmail]/Spam`. Partners are kept out of campaigns (not offered as senders, refused by the API, skipped by the send job, and a campaign email to a partner address is cancelled); a mailbox a campaign uses can't become a partner.
+  - **Gmail placement:** each business mailbox's page shows "In Gmail spam, 7 days" (its emails that Gmail partners found in spam, and how many were moved back) apart from spam at the other mailboxes.
+  - **After an independent code review (Nov 19), fixed:**
+    - a paused mailbox plans no replies and drops waiting ones;
+    - replies planned more than 4 days ago and new emails more than 3 hours past their time are dropped, so a stopped server or a disabled account doesn't send yesterday's emails on top of today's;
+    - new emails hit by a provider limit are dropped, not moved to the next day;
+    - partner slots that don't divide evenly rotate between business mailboxes (random planning order each day);
+    - a retry reuses the first try's Message-ID and text;
+    - out-of-office replies to warm-up emails, plain mail from the account's own warm-up mailboxes, and bounces about them never reach Replies, push or the do-not-send list;
+    - planned times are kept only when the send job also counts them as inside the window (overnight window with weekdays only);
+    - the spam-folder retry never searches with an empty Message-ID.
+  - **Automated test:** `tools/test-env/warmup-e2e.mjs` runs the real jobs against the test kit and checks 52 things (see the test kit README). It passed 3 full runs in a row on Nov 19.
+  - **Limit, told to the user:** warm-up only between mailboxes on one provider never reaches Gmail/Outlook; the Gmail partners are what fixes that for Gmail.
+  - **Next.js notice:** the first `npm run build` run by an AI agent stops with a Next.js message that 16.4.1 has a known security advisory and suggests `next upgrade`. A second run passes. Not upgraded: the user's decision.
 
 - **ColdMailer is built and running locally** in Docker at http://localhost:3000: Postgres, the app, the cron runner and Adminer.
 - **You (the user) are testing it** with a real Gmail account and a Hostinger business mailbox (`support@edufusionbd.online`).
@@ -73,6 +97,7 @@ Last updated: Oct 18, 2026 (open sign-ups with a private workspace per account; 
 | Tracking | Sent, bounced (SMTP rejection and bounce notices, matched by Message-ID), replied, failed. Open/click only in Newsletter style. "Delivered" is not reported by ordinary mailboxes. Every queued email shows an **expected send time** or why it's waiting. |
 | Replies | Inbox job every 5 minutes, read-only (unread stays unread). Matches replies by `In-Reply-To`/`References`, else by address. Strips quoted history, saves attachments, flags auto-replies. **"No thanks / stop / unsubscribe / remove me" replies** put the person on the do-not-send list. Emailed "unsubscribe" requests do too. **Several replies from one person** to the same email are all kept: the reply page shows the whole conversation, the list tags them "reply 2 of 3", and the campaign and recipient pages show every one. |
 | Do-not-send | Bounces, unsubscribes and manual entries. Skipped in every campaign. |
+| Warm-up | Per-mailbox switch. The account's warm-up mailboxes email each other daily (ramp 2 → 30, editable), reply in the same thread, mark warm-up mail read and move it out of spam. Status per mailbox: day, sent today, replies, landed in spam / moved back. Shares the daily limit with campaigns. |
 | Recipients | Paged list with search and status filter. Per-person timeline: which mailbox, when, what happened. |
 | Accounts | Anyone can register, but the super admin (`/superadmin`, seeded by migration `0011`) must approve each account before it can sign in. Each member account is a private workspace (every owned table has `user_id`). Login with JWT. The app always opens on the sign-in page; registering never signs you in, it shows a "waiting for approval" popup. Password change, show/hide on password fields, rate-limited logins (10 failures → 15-minute lock). |
 | API | `/api/v1/*` with Bearer JWT (`POST /api/v1/auth/token`, or Settings → Create API token). Optional shared `API_KEY`. Paged lists return a `pagination` block. |
@@ -113,12 +138,14 @@ components/             UI kit, app shell (nav), pagination, queue ETA, PWA bits
 lib/jobs/send.ts        send job: turns, limits, gaps, retries, error handling
 lib/jobs/inbox.ts       inbox job: IMAP reading per mailbox and folder
 lib/jobs/inbox-watch.ts instant reply check: IMAP IDLE per active mailbox, started by instrumentation.ts
+lib/warmup/             warm-up: job.ts (daily plan + sending, run by the send job), inbound.ts (receiving side),
+                        content.ts (email texts), schedule.ts (ramp/timing maths), status.ts (numbers for the pages)
 lib/timezones.ts        timezone dropdown options; lib/time-window.ts has the zone-aware time conversions
 lib/mail/               connection (SMTP/IMAP), compose (personal/newsletter), inbound (replies, bounces, opt-outs), errors, dns
 lib/queue-eta.ts        expected-send-time simulation
 lib/queries.ts          the 24-hour sent count (see the comment there: why "senders"."id" is written out)
 lib/db/schema.ts        all tables
-drizzle/                migrations 0000–0009 (+ meta)
+drizzle/                migrations 0000–0013 (+ meta)
 scripts/                db-sync.sh, migrate.mjs, cron.mjs, generate-keys.mjs, backup.sh
 deploy/                 Caddyfile, server.env (server secrets; private, not in git or images)
 tools/test-env/         throwaway Postgres/SMTP/IMAP servers for testing (see its README)
@@ -128,7 +155,7 @@ public/                 sw.js (push + offline), offline.html, icons/, brand/
 
 ## 5. Database and migrations
 
-- **Tables:** `users`, `senders`, `recipients`, `campaigns`, `campaign_senders`, `messages`, `replies`, `tracking_links`, `suppressions`, `test_sends`, `push_subscriptions`, `settings`, `jobs`.
+- **Tables:** `users`, `senders`, `recipients`, `campaigns`, `campaign_senders`, `messages`, `replies`, `warmup_messages`, `tracking_links`, `suppressions`, `test_sends`, `push_subscriptions`, `settings`, `jobs`.
 - **Migrations so far:**
 
   | File | What it does |
@@ -146,6 +173,7 @@ public/                 sw.js (push + offline), offline.html, icons/, brand/
   | `0010` | Private workspaces: `user_id` on `senders`, `recipients`, `campaigns`, `messages`, `replies`, `suppressions` and `settings` (now keyed by `user_id`); mailboxes, recipients and the do-not-send list are unique per account. Hand-edited to give existing rows to the first admin. |
   | `0011` | Super admin: sign-ups default to `pending`, old `admin` roles become `member`, and the super admin `shahin.khan.dev@gmail.com` is inserted (scrypt hash only). Hand-edited. |
   | `0012` | Drops `users.must_change_password` where an earlier draft of `0011` added it (the local Docker and test databases); does nothing elsewhere. |
+  | `0013` | Mailbox warm-up: `warmup_*` columns on `senders` (including `warmup_role` and `warmup_receive_max` for partner mailboxes) and the `warmup_messages` table. Generated, not hand-edited. Applied to the test kit database Nov 19 (an earlier draft without the partner columns was undone there first); not yet to production or the local Docker database. |
 
 - **Process:** change `lib/db/schema.ts`, then either:
   - run `docker compose up --build`, where the `migrate` container generates the migration file into `drizzle/` and applies it; or
@@ -242,7 +270,22 @@ Pages were checked in the browser pane at desktop and phone width.
   - **Countdowns** at phone width; `npm run build` passes.
   - **Not yet:** in Docker, and migration `0007` on the existing local database.
 
+- **Mailbox warm-up (Nov 19, test kit):** the test kit now has three warm-up mailboxes plus a Gmail-like partner (`dana@gmail-test.test`: `[Gmail]/Spam`, Gmail labels) with their own IMAP servers, and its SMTP sink delivers to them (every 3rd email per mailbox into the spam folder). Checked:
+  - **Switch and form:** on/off from the page ("waiting for a partner" with one mailbox), settings saved and validated.
+  - **Plan:** 2 emails per mailbox on day 1, each to a different partner, at random times inside the 09:00–17:00 New York window; nothing outside it (a due email with the window closed was dropped as missed).
+  - **Send:** plain text, natural, subject and body about the same thing; one per mailbox per run; 2 minutes between sends.
+  - **Receive:** found within ~2 s by the instant watcher, marked read on the server; replies planned at the reply rate, sent with correct `In-Reply-To`/`References` and `Re:`; reply-backs; no 4th email in a thread.
+  - **Spam rescue:** two replies that landed in Junk were moved to INBOX, marked read and counted; the moved copies weren't processed twice.
+  - **Kept apart:** no `replies`, `recipients`, `suppressions` or `messages` rows from warm-up; a warm-up bounce marked the warm-up email failed without touching the do-not-send list; the same mailbox connected in a second account ignored the warm-up mail.
+  - **Daily limit:** at the limit a warm-up email waits; `/api/v1/senders` counts warm-up sends.
+  - **Turn off:** waiting emails cancelled; an email planned to that mailbox went to another partner.
+  - **Maths:** ramp 2…30, day count on the account's clock, weekends, overnight and all-day windows, resume keeps the ramp day.
+  - **Partners:** role set from the page; Test connection found `[Gmail]/Spam`; with 3 business mailboxes and a partner limit of 3, each sent exactly 1 to the partner and the partner started none; the email that landed in `[Gmail]/Spam` was moved to INBOX, read, labelled Important; partner replies 1–4 h later, threaded; "In Gmail spam: 1 of 1, 1 moved back" on that business mailbox's page; partner left out of the new-campaign page, refused by the API, dropped from a mixed sender list, a campaign email to its address cancelled; a mailbox used by a campaign refused as partner. Starring wasn't seen (random, 20%); it uses the same flag call as marking read.
+  - **Pages:** mailbox page and list at desktop and 375 px (no sideways scroll); `npm run build` passes.
+
 **Not verified yet:**
+
+- **Warm-up with real mailboxes:** real Hostinger IMAP (spam folder name, `MOVE`), real Gmail partners (app password, `[Gmail]/Spam`, labels), and the week-long ramp over real days.
 
 - **Real deliverability:** Gmail Primary placement with the Personal style. On Oct 16 a test to the user's Gmail **landed in spam**. Cause found: the `hostingermail-a/b/c._domainkey` DKIM CNAMEs exist in Cloudflare but were **Proxied**, so they resolve to Cloudflare IPs and Gmail can't read the key. The user switched them to **DNS only** the same day; Google's public DNS returned the key right after. Not yet confirmed with a new test in Gmail's "Show original". SPF is fine; DMARC is `p=none`.
 - **Real servers:** AWS EC2, Google Cloud or Oracle; Caddy HTTPS with a real certificate; the backup script on a server.
@@ -261,9 +304,17 @@ Pages were checked in the browser pane at desktop and phone width.
 - **Estimates:** expected send times are approximate (±15% gaps; a mailbox shared by several campaigns serves them in turn).
 - **Login limiter:** in memory, so it resets when the app restarts. Fine for one container.
 - **Old test emails:** those sent before the counting fix aren't counted in "Sent in the last 24 hours".
+- **Warm-up:**
+  - mailboxes on one provider only warm up with each other (Gmail/Outlook never see that mail);
+  - texts are in English;
+  - a mailbox without a spam folder (none found at Test connection) can't move warm-up mail out of spam;
+  - expected campaign send times don't include warm-up emails still to come today, so they can run a little early;
+  - changing start/increase/maximum applies from the next day's plan.
 - **Gmail tabs:** placement can't be guaranteed. The Personal style removes the bulk-mail signals; a personal sender address (not `support@`), few links and engagement help further.
 
 ## 11. Next steps, in order
+
+0. **Warm-up (Nov 19):** deploy it (copy the project to the server, `docker compose up -d --build`; the automatic backup runs first, then migration `0013`). Then turn on warm-up for the 6 Hostinger mailboxes, check their daily limits leave room (warm-up at its maximum sends about 30 new emails plus replies a day), add the 10 Gmail accounts as partners (2-Step Verification, app password, IMAP on), and watch "In Gmail spam" on each business mailbox page.
 
 1. **Hosting:** follow [`docs/Deploy to AWS EC2.md`](docs/Deploy%20to%20AWS%20EC2.md) (or the Google Cloud guide). On a Hostinger VPS the same Docker steps apply, apart from the provider-specific parts.
 2. **Before deploying:**

@@ -14,12 +14,13 @@ This page summarises both. The older, larger design is in `docs/archive/`.
 | Table | Holds |
 | --- | --- |
 | `users` | Accounts: name, email, scrypt password hash, `role` (`member`, or `superadmin`: approves accounts at `/superadmin`, has no workspace), `status` (`pending` until the super admin approves a sign-up, `active`, `disabled`). Anyone can sign up; nobody can sign in before approval. Each account is a private workspace: `senders`, `recipients`, `campaigns`, `messages`, `replies`, `suppressions` and `settings` all carry the owning account's `user_id`, and every page, action and API call only sees that account's rows. |
-| `senders` | Mailboxes. Holds: provider (hostinger, gmail, custom); SMTP server, port, encryption (`ssl`, `starttls`, `none`) and username; whether the inbox is read (`read_inbox`) and the IMAP server, port, encryption and username; for send-only mailboxes, the mailbox that receives replies (`reply_to_sender_id`); encrypted password (AES-256-GCM); daily limit; next turn (`next_send_at`); `rest_until` (no sending at all until then, set by a “limit exceeded” or “too many” error); status and last error; Sent/Spam folder names; inbox positions (`imap_state`). |
+| `senders` | Mailboxes. Holds: provider (hostinger, gmail, custom); SMTP server, port, encryption (`ssl`, `starttls`, `none`) and username; whether the inbox is read (`read_inbox`) and the IMAP server, port, encryption and username; for send-only mailboxes, the mailbox that receives replies (`reply_to_sender_id`); encrypted password (AES-256-GCM); daily limit; next turn (`next_send_at`); `rest_until` (no sending at all until then, set by a “limit exceeded” or “too many” error); status and last error; Sent/Spam folder names; inbox positions (`imap_state`); warm-up: on/off (`warmup_enabled`), role (`warmup_role`: `sender` sends and replies; `partner`, e.g. the user's own Gmail accounts, only receives at most `warmup_receive_max` new warm-up emails a day and replies, and never sends campaigns), day 1 of the ramp (`warmup_started_at`, moved forward by the time warm-up was off; `warmup_paused_at`), the local date already planned (`warmup_planned_on`), and the per-mailbox numbers `warmup_start`, `warmup_increase`, `warmup_max`, `warmup_reply_rate`. |
 | `recipients` | Everyone the account ever emailed (unique per account): email, name, status (active, replied, bounced, unsubscribed), the mailbox that owns them (`sender_id`), first and last contact |
 | `campaigns` | Subject, body (text or HTML), send window and timezone, weekdays only, tracking switches, follow-up link, status (draft while a large list is still uploading, active, paused, done, cancelled), creator |
 | `campaign_senders` | The mailboxes chosen for each campaign |
 | `messages` | One email to one person. `queued` rows are the send queue. Holds merge fields, the final subject, the email's own `Message-ID`, status (queued, sending, sent, bounced, replied, failed, cancelled), `scheduled_at` (a send time someone chose; empty = automatic), attempts, errors, send/bounce/reply times, open and click counts. |
 | `replies` | Replies matched to a sent email: sender, subject, full text and HTML, the reply without quoted history, attachments, auto-reply flag, read state |
+| `warmup_messages` | Warm-up emails between one account's own mailboxes (migration `0013`), kept apart from `messages`/`replies` so they never reach campaign stats, Replies, recipients, push notifications or the do-not-send list. Holds the sending and receiving mailbox (`sender_id`, `to_sender_id`), the email it answers (`parent_id`) and its thread (`thread_id`, `topic`), subject and text (written when sent), the `Message-ID` (saved before sending; the receiving inbox check recognises warm-up emails by it), status (scheduled, sending, sent, failed, cancelled), `scheduled_at`, attempts, errors, `sent_at`, and the receiving side's findings: `received_at`, `landed_in` (inbox or spam) and `rescued_at` (moved out of spam). |
 | `tracking_links` | Original URLs behind tracked links |
 | `suppressions` | Each account's do-not-send list (bounced, unsubscribed, manual) |
 | `push_subscriptions` | Browsers and phones that get reply notifications, per user, with delivery health: last sent (push service accepted), last received (the device confirmed), last error |
@@ -36,9 +37,15 @@ JOIN campaign_senders cs ON cs.sender_id = s.id AND cs.campaign_id = $1
 WHERE s.status = 'active'
   AND s.next_send_at <= now()
   AND (SELECT count(*) FROM messages m
-       WHERE m.sender_id = s.id AND m.sent_at > now() - interval '24 hours') < s.daily_limit
+       WHERE m.sender_id = s.id AND m.sent_at > now() - interval '24 hours')
+    + (SELECT count(*) FROM warmup_messages w
+       WHERE w.sender_id = s.id AND w.sent_at > now() - interval '24 hours')
+    + (SELECT count(*) FROM test_sends t
+       WHERE t.sender_id = s.id AND t.sent_at > now() - interval '24 hours') < s.daily_limit
 ORDER BY s.next_send_at;
 ```
+
+The daily limit covers campaign, warm-up and test emails together (`sentLast24h` in `lib/queries.ts`).
 
 After each send, the mailbox's `next_send_at` moves forward by the send window divided by its daily limit (±15%, at least 2 minutes). It never moves backwards. People already tied to a mailbox wait for that mailbox's turn.
 
@@ -56,6 +63,16 @@ A `queued` email with `scheduled_at` is skipped by the automatic picking above. 
 - **Which mailbox:** the person's own mailbox if they have one, otherwise the campaign mailbox that has waited longest.
 
 Set times come from the campaign form ("Set the times myself"), from the API (`send_at`, `schedule`), or from **Set time / Change time** on any waiting email. That control can also send an email now or hand it back to automatic timing.
+
+## Warm-up
+
+Code in `lib/warmup/`. The send job (every minute) runs warm-up first, then campaigns, so the shared daily limit is never overshot by two jobs at once.
+
+- **Pool:** an account's mailboxes with `warmup_enabled`, status active and an inbox that's read (IMAP). Never across accounts.
+- **Plan (once a day per sending mailbox, on the account's clock):** `warmup_start + warmup_increase × (day − 1)`, capped at `warmup_max`, new emails at random times inside the account's send window (Settings). Partners take at most `warmup_receive_max` new emails a day in total, shared fairly among the account's sending mailboxes (each gets about `ceil(partner room / sending mailboxes)`); the rest goes to the other sending mailboxes. Partners never start threads. Turned on part-way through a day, only the rest of the day's share. Nothing is planned on weekends when the window is weekdays only.
+- **Partners and campaigns:** partner mailboxes are left out of campaign mailbox choices (page and API) and the campaign send job; a campaign email addressed to one of the account's partner mailboxes is cancelled; a mailbox that any campaign uses can't become a partner.
+- **Send:** due rows go out unless the mailbox is paused or resting, the window is closed (a new email is then dropped as missed; a reply waits for the window), the daily limit is reached (waits 20–60 minutes), or the mailbox sent something in the last 2 minutes. At most one warm-up email per mailbox per run. A partner that left the pool is swapped for another one.
+- **Receive:** `processInbound` first looks up the email's `Message-ID` in `warmup_messages`. A match for this mailbox records `received_at` and `landed_in`, may plan a reply (at `warmup_reply_rate`, half that for an answer to a reply, at most 3 emails per thread, sent 15 minutes to 3 hours later, partners 20 minutes to 5 hours, inside the window), and the inbox check then marks it `\Seen` (a partner also stars about 20% and, on Gmail, labels about 25% `\Important`) and moves it from the spam folder (Gmail: `[Gmail]/Spam`) to INBOX (`rescued_at`). The mailbox page counts placement at Gmail mailboxes separately. Moves that fail are retried by `Message-ID` search for 3 days. A match for another mailbox or account is ignored. A bounce notice about a warm-up email marks it failed.
 
 ## Authentication (JWT)
 
@@ -85,7 +102,7 @@ The dashboard uses Server Actions and a few signed-in routes. The public routes 
 | `GET` | `/api/v1/campaigns/{id}/messages` | JWT | The campaign's emails with status, mailbox, `scheduled_at` and send times |
 | `GET` | `/api/v1/recipients/lookup?email=` | JWT | One person's full history |
 | `GET` | `/api/v1/replies?since=` | JWT | New replies |
-| `GET` | `/api/v1/senders` | JWT | Mailboxes and today's usage |
+| `GET` | `/api/v1/senders` | JWT | Mailboxes and usage in the last 24 hours (campaign, warm-up and test emails) |
 | `POST` | `/api/cron/send` | `CRON_SECRET` | Send due emails (every minute) |
 | `POST` | `/api/cron/inbox` | `CRON_SECRET` | Read inboxes and spam folders for bounces and replies (every 5 minutes; new inbox mail is also picked up within seconds by the IMAP IDLE watcher in the app) |
 | `POST` | `/api/campaigns`, `/api/campaigns/test`, `/api/sheets` | Signed in | Create a campaign, send a test, import a Google Sheet. With `"draft": true` the campaign holds the first part of a large list and doesn't send yet |

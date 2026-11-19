@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   campaignSenders,
@@ -23,8 +23,10 @@ import { sentLast24h } from "@/lib/queries";
 import { getSettings } from "@/lib/settings";
 import { isInsideWindow, sendGapMs } from "@/lib/time-window";
 import { emailLogo } from "@/lib/brand-logo";
+import { runWarmup } from "@/lib/warmup/job";
 
 const TIME_BUDGET_MS = 45_000; // the job runs every minute
+const WARMUP_BUDGET_MS = 15_000; // warm-up goes first and leaves most of the minute to campaigns
 const MAX_ATTEMPTS = 3;
 const RETRY_MINUTES = [5, 15, 45];
 const STUCK_MINUTES = 10;
@@ -48,7 +50,14 @@ async function readySenders(campaignId: string): Promise<Sender[]> {
     .select({ sender: senders })
     .from(senders)
     .innerJoin(campaignSenders, and(eq(campaignSenders.senderId, senders.id), eq(campaignSenders.campaignId, campaignId)))
-    .where(and(eq(senders.status, "active"), lte(senders.nextSendAt, sql`now()`), sql`${sentLast24h} < ${senders.dailyLimit}`))
+    .where(
+      and(
+        eq(senders.status, "active"),
+        ne(senders.warmupRole, "partner"), // warm-up partner mailboxes never send campaigns
+        lte(senders.nextSendAt, sql`now()`),
+        sql`${sentLast24h} < ${senders.dailyLimit}`,
+      ),
+    )
     .orderBy(asc(senders.nextSendAt));
   return rows.map((r) => r.sender);
 }
@@ -65,6 +74,7 @@ async function sendersForSetTimes(campaignId: string): Promise<Sender[]> {
     .where(
       and(
         eq(senders.status, "active"),
+        ne(senders.warmupRole, "partner"),
         or(isNull(senders.restUntil), lte(senders.restUntil, sql`now()`)),
         sql`${sentLast24h} < ${senders.dailyLimit}`,
       ),
@@ -143,6 +153,19 @@ async function sendOne(campaign: Campaign, sender: Sender, message: Message, set
     .select()
     .from(suppressions)
     .where(and(eq(suppressions.userId, campaign.userId), eq(suppressions.email, recipient.email)));
+  // The account's own warm-up partner mailboxes never get campaign emails.
+  const [partner] = await db
+    .select({ id: senders.id })
+    .from(senders)
+    .where(and(eq(senders.userId, campaign.userId), eq(senders.email, recipient.email), eq(senders.warmupRole, "partner")))
+    .limit(1);
+  if (partner) {
+    await db
+      .update(messages)
+      .set({ status: "cancelled", error: "One of your warm-up partner mailboxes; it never gets campaign emails", updatedAt: new Date() })
+      .where(eq(messages.id, message.id));
+    return "skipped";
+  }
   if (suppressed || recipient.status === "bounced" || recipient.status === "unsubscribed") {
     await db
       .update(messages)
@@ -318,6 +341,12 @@ export async function runSendJob(): Promise<string> {
   };
   const counts: Record<Outcome, number> = { sent: 0, bounced: 0, failed: 0, retry: 0, skipped: 0 };
 
+  // Warm-up first, in the same run as campaigns, so the shared daily limit is never overshot by two jobs at once.
+  const warm = await runWarmup(started + WARMUP_BUDGET_MS).catch((err) => {
+    console.error("[warmup] run failed", err);
+    return null;
+  });
+
   let progressed = true;
   while (progressed && Date.now() - started < TIME_BUDGET_MS) {
     progressed = false;
@@ -339,5 +368,8 @@ export async function runSendJob(): Promise<string> {
     }
   }
 
-  return `sent ${counts.sent}, bounced ${counts.bounced}, failed ${counts.failed}, retrying ${counts.retry}, skipped ${counts.skipped}`;
+  const warmText = warm
+    ? `; warm-up: planned ${warm.planned}, sent ${warm.sent}, waiting ${warm.waiting}, failed ${warm.failed}, cancelled ${warm.cancelled}`
+    : "; warm-up: failed to run";
+  return `sent ${counts.sent}, bounced ${counts.bounced}, failed ${counts.failed}, retrying ${counts.retry}, skipped ${counts.skipped}${warmText}`;
 }
