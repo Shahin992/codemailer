@@ -256,7 +256,7 @@ const SCENARIOS: Record<string, Scenario> = {
       "Next week I'll mostly be on {project}.",
       "Quick check-in: this week I'm focusing on the {thing}.",
     ],
-    details: ["I should have the {thing} ready by {day}.", "Let me know if priorities change.", ""],
+    details: ["The first part should be ready by {day}.", "Let me know if priorities change.", ""],
     asks: ["Anything you need from me?", ""],
     replies: [
       "Thanks, that all sounds right.",

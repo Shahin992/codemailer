@@ -36,8 +36,10 @@ export async function warmupSummaries(userId: string, timeZone: string): Promise
 
 export type WarmupActivity = {
   id: string;
+  threadId: string;
   direction: "out" | "in";
   partner: string;
+  partnerName: string | null;
   isReply: boolean;
   subject: string | null;
   status: string;
@@ -128,7 +130,7 @@ export async function warmupDetail(sender: Sender, timeZone: string, weekdaysOnl
 
   const partner = aliasedTable(senders, "partner");
   const recentRows = await db
-    .select({ row: w, fromEmail: senders.email, toEmail: partner.email })
+    .select({ row: w, fromEmail: senders.email, fromName: senders.displayName, toEmail: partner.email, toName: partner.displayName })
     .from(w)
     .innerJoin(senders, eq(senders.id, w.senderId))
     .innerJoin(partner, eq(partner.id, w.toSenderId))
@@ -168,12 +170,14 @@ export async function warmupDetail(sender: Sender, timeZone: string, weekdaysOnl
       rescuedHere: inc.rescued7d,
     },
     allTime: { sent: out.sentAll, spam: out.spamAll, movedBack: out.movedAll, rescuedHere: inc.rescuedAll },
-    recent: recentRows.map(({ row, fromEmail, toEmail }) => {
+    recent: recentRows.map(({ row, fromEmail, fromName, toEmail, toName }) => {
       const outgoing = row.senderId === sender.id;
       return {
         id: row.id,
+        threadId: row.threadId,
         direction: outgoing ? "out" : "in",
         partner: outgoing ? toEmail : fromEmail,
+        partnerName: outgoing ? toName : fromName,
         isReply: Boolean(row.parentId),
         subject: row.subject,
         status: row.status,

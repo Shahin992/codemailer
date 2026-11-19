@@ -137,6 +137,8 @@ New mailboxes have no history, and mail providers distrust addresses that only e
 
 **The mailbox page shows:** the warm-up day and today's goal, sent today (new and replies), received today, replies in the last 7 days, how many of its emails landed in spam and were moved back, emails not found yet, and the latest warm-up emails. The Mailboxes list shows the warm-up day and a warning badge when some of its emails landed in spam.
 
+**Warm-up history:** on the mailbox page, **See all conversations** (or any recent warm-up email) opens that mailbox's warm-up conversations: all-time numbers (conversations, sent, received, how often its emails landed in spam), a search, and filters (started here, started by others, landed in spam, waiting to send). A conversation opens as a chat: this mailbox's emails on the right, the other mailbox's on the left, each with when it was sent and where it landed (inbox, or spam and moved back). The quoted earlier emails and the Message-ID are under "Show the full email".
+
 **Turning it off** cancels that mailbox's waiting warm-up emails. Turning it on again continues the ramp where it stopped.
 
 ### Partner mailboxes (your own Gmail accounts)

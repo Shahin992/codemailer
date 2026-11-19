@@ -26,6 +26,7 @@ Last updated: Nov 19, 2026 (mailbox warm-up; before that, Oct 18: open sign-ups 
   - **Ramp:** day 1 = 2 new emails, +2 a day, up to 30 (day 15); reply rate 35%. All four editable per mailbox. New emails at random times inside the account's send window (Settings), planned once a day on the account's clock; weekends skipped when the window is weekdays only.
   - **Threads:** replies 15 min – 3 h after the email is found, `Re:` + `In-Reply-To`/`References`, the earlier email quoted; at most 3 emails per thread.
   - **Texts (rewritten Nov 19 after the user asked for more emails and proper replies):** 20 scenarios in `lib/warmup/content.ts`, each with its own subjects, wordings, replies and closings. The scenario and the words picked (day, document…) are stored in `warmup_messages.topic` (`call-request?day=Tuesday&thing=slides`), so replies reuse exactly the same details; scenarios without closings ("thank you", reminders) end after the reply. Checked by generating thousands of threads: no unfilled gaps, no repeated "Thanks"/sign-off, about 99% unique bodies. Warm-up emails already planned keep working: text is written when an email is sent; a topic from before the rewrite falls back to generic replies.
+  - **Warm-up history pages (Nov 19, not deployed yet):** `/mailboxes/[id]/warmup` lists a mailbox's warm-up conversations (all-time tiles, search, filters incl. "Waiting to send", paged) and `/mailboxes/[id]/warmup/[threadId]` shows one as a chat with where each email landed. Queries in `lib/warmup/history.ts`; shared avatar and placement pill in `app/(app)/mailboxes/[id]/warmup/parts.tsx`. A conversation only opens through a mailbox that is part of it (404 otherwise). The Warm-up card's numbers are tiles now, and its recent emails link to their conversations.
   - **Partner set-up warnings (Nov 19):** the user's first live Gmail (mark42722752@gmail.com) was added as a Business mailbox named "Gmail"; it was fixed to Partner and "Mark". The mailbox page now warns when a Gmail account isn't a Partner, or when the sender name is empty or a word like "Gmail".
   - **Ramp counts sending days:** with "weekdays only", weekends don't count as warm-up days (Thu 1, Fri 2, Mon 3). Before this fix Monday would have been day 5.
   - **Receiving side:** recognised by `Message-ID` (stored before sending; no visible marker), marked read, moved out of spam back to INBOX; how often a mailbox's emails land in spam is the health signal.
@@ -142,7 +143,8 @@ lib/jobs/send.ts        send job: turns, limits, gaps, retries, error handling
 lib/jobs/inbox.ts       inbox job: IMAP reading per mailbox and folder
 lib/jobs/inbox-watch.ts instant reply check: IMAP IDLE per active mailbox, started by instrumentation.ts
 lib/warmup/             warm-up: job.ts (daily plan + sending, run by the send job), inbound.ts (receiving side),
-                        content.ts (email texts), schedule.ts (ramp/timing maths), status.ts (numbers for the pages)
+                        content.ts (email texts), schedule.ts (ramp/timing maths), status.ts (numbers for the pages),
+                        history.ts (conversation list and thread for the history pages)
 lib/timezones.ts        timezone dropdown options; lib/time-window.ts has the zone-aware time conversions
 lib/mail/               connection (SMTP/IMAP), compose (personal/newsletter), inbound (replies, bounces, opt-outs), errors, dns
 lib/queue-eta.ts        expected-send-time simulation
