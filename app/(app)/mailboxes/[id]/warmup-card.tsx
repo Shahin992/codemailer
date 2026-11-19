@@ -3,6 +3,7 @@ import { ArrowDownLeft, ArrowUpRight } from "lucide-react";
 import { Time } from "@/components/client";
 import { Alert, Badge, Card, CardHeader } from "@/components/ui";
 import type { Sender, Settings } from "@/lib/db/schema";
+import { isGmailMailbox } from "@/lib/warmup/schedule";
 import type { WarmupActivity, WarmupDetail } from "@/lib/warmup/status";
 import { WarmupSettingsForm, WarmupSwitch } from "./warmup-controls";
 
@@ -28,6 +29,9 @@ function activityLabel(a: WarmupActivity): { text: string; tone: "neutral" | "su
   if (a.landedIn === "inbox") return { text: a.direction === "out" ? "Reached inbox" : "Received", tone: "success" };
   return { text: a.direction === "out" ? "Sent, not found yet" : "On its way", tone: "info" };
 }
+
+// Sender names that aren't a person's: warm-up emails are signed with the sender's first name and the From line shows it.
+const NOT_A_NAME = /^(gmail|google|googlemail|outlook|hotmail|yahoo|hostinger|zoho|mail|email|e-mail|inbox|support|info|admin|test|user)$/i;
 
 /** "2 of 40" with a colour: none in spam is good, a few is a warning, more is bad. */
 function spamFigure(spam: number, found: number): { value: string; pct: number; tone: Tone } {
@@ -64,6 +68,20 @@ export function WarmupCard({ sender, detail, settings }: { sender: Sender; detai
         action={on ? <Badge tone="primary">{isPartner ? "Partner" : detail.day ? `Day ${detail.day}` : "On"}</Badge> : <Badge>Off</Badge>}
       />
       <div className="space-y-5 p-4 md:p-5">
+        {isGmailMailbox(sender) && !isPartner && (
+          <Alert tone="info" title="A Gmail account">
+            If this is one of your own Gmail accounts for warm-up (not for sending campaigns), set <strong>Takes part as</strong> below to{" "}
+            <strong>Partner</strong> and save. It then only receives a few warm-up emails a day and replies, which keeps the account looking like a
+            person&apos;s and shows how often your business mailboxes land in Gmail spam.
+          </Alert>
+        )}
+        {(on || isPartner) && (!sender.displayName?.trim() || NOT_A_NAME.test(sender.displayName.trim())) && (
+          <Alert tone="warning" title="Give it a person's name">
+            Warm-up emails are signed with the sender&apos;s first name, and the From line shows the sender name
+            {sender.displayName?.trim() ? `, now “${sender.displayName.trim()}”` : ", which is empty now"}. Set a real name under Edit mailbox → Sender
+            name (for example “Mark”) and press Test and save.
+          </Alert>
+        )}
         {on && !isPartner && !detail.partners.length && (
           <Alert tone="warning" title="Waiting for a partner">
             No other mailbox in this account has warm-up on. Turn it on for at least one more mailbox; they warm each other up.
@@ -214,6 +232,7 @@ export function WarmupCard({ sender, detail, settings }: { sender: Sender; detai
               ? `Replies go out 20 minutes to 5 hours after a warm-up email arrives, inside your send window (${window}; change it in Settings).`
               : `New emails go out at random times inside your send window (${window}; change it in Settings), and replies follow 15 minutes to 3 hours later.`}
             {!isPartner && detail.maxReachedOnDay && ` With these numbers it reaches ${sender.warmupMax} a day on day ${detail.maxReachedOnDay}.`}
+            {!isPartner && settings.weekdaysOnly && " Only weekdays count as warm-up days, so it never jumps ahead after a weekend."}
           </p>
           <WarmupSettingsForm
             id={sender.id}

@@ -8,6 +8,7 @@ import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { senders, warmupMessages, type Sender } from "@/lib/db/schema";
 import { getSettings } from "@/lib/settings";
+import { wantsClosing } from "@/lib/warmup/content";
 import { canWarmUp, MAX_THREAD_LENGTH, REPLY_DELAY_MINUTES, replyTime } from "@/lib/warmup/schedule";
 
 export type WarmupMatch =
@@ -81,7 +82,9 @@ async function maybePlanReply(receiver: Sender, row: typeof warmupMessages.$infe
     .from(warmupMessages)
     .where(and(eq(warmupMessages.threadId, row.threadId), ne(warmupMessages.status, "cancelled")));
   if (thread.n >= MAX_THREAD_LENGTH) return;
-  // The first email is answered at the reply rate; a reply gets an answer back half as often, so threads taper off.
+  // The first email is answered at the reply rate; a reply gets a short closing half as often, so threads taper off.
+  // Threads that don't call for one ("thank you" notes, reminders) end with the reply.
+  if (row.parentId && !wantsClosing(row.topic)) return;
   const rate = row.parentId ? receiver.warmupReplyRate / 2 : receiver.warmupReplyRate;
   if (Math.random() * 100 >= rate) return;
 

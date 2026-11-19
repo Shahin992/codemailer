@@ -147,7 +147,7 @@ async function planDay(now: Date, settingsFor: (userId: string) => Promise<Setti
     if (from >= until) continue; // today's window is already over
 
     // Turned on part-way through the day: only the rest of the day's share. Turned off and on again: what's left.
-    const target = dailyTarget(sender, warmupDay(sender.warmupStartedAt ?? now, now, settings.timezone));
+    const target = dailyTarget(sender, warmupDay(sender.warmupStartedAt ?? now, now, settings.timezone, settings.weekdaysOnly));
     const share = Math.ceil((target * (until.getTime() - from.getTime())) / (window.end.getTime() - window.start.getTime()));
     const [already] = await db
       .select({ n: sql<number>`count(*)::int` })
@@ -319,6 +319,7 @@ async function sendOne(row: WarmupMessage, settings: Settings): Promise<Outcome>
     topic = topic ?? thread[0].topic;
     ({ text } = warmupReply({
       topic,
+      position: thread.length >= 2 ? 3 : 2,
       from: { name: firstName(from.displayName, from.email) },
       to: { name: firstName(to.displayName, to.email), email: to.email },
       parent: { text: parent.bodyText, sentAt: parent.sentAt },

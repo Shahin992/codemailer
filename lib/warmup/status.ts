@@ -76,7 +76,7 @@ export type WarmupDetail = {
 };
 
 /** Everything the mailbox page shows about one mailbox's warm-up. */
-export async function warmupDetail(sender: Sender, timeZone: string): Promise<WarmupDetail> {
+export async function warmupDetail(sender: Sender, timeZone: string, weekdaysOnly = false): Promise<WarmupDetail> {
   const now = new Date();
   const { start, end } = todayRange(timeZone, now);
   const startIso = sql`${start.toISOString()}::timestamptz`;
@@ -142,7 +142,7 @@ export async function warmupDetail(sender: Sender, timeZone: string): Promise<Wa
     .limit(12);
 
   const isSender = sender.warmupRole !== "partner";
-  const day = isSender && sender.warmupEnabled && sender.warmupStartedAt ? warmupDay(sender.warmupStartedAt, now, timeZone) : null;
+  const day = isSender && sender.warmupEnabled && sender.warmupStartedAt ? warmupDay(sender.warmupStartedAt, now, timeZone, weekdaysOnly) : null;
   const maxReachedOnDay =
     sender.warmupIncrease > 0 ? Math.max(Math.ceil((sender.warmupMax - sender.warmupStart) / sender.warmupIncrease) + 1, 1) : null;
 

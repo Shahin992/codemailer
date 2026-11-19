@@ -128,9 +128,9 @@ New mailboxes have no history, and mail providers distrust addresses that only e
 
 **What happens:**
 
-- **Each day** every warm-up mailbox sends new emails to the others at random times inside the account's send window (Settings → Sending defaults). Day 1 is 2 emails, then 2 more each day, up to 30 a day (reached on day 15). You can change the start, the daily increase, the maximum and the reply rate per mailbox.
-- **The emails** are short, ordinary workplace notes (a meeting time, a document, a quick question), plain text, no links. Subjects and texts are put together from many parts, so no two are the same.
-- **Replies:** a mailbox answers about 35% of the warm-up emails it gets, 15 minutes to 3 hours later, in the same thread (`Re:` subject, `In-Reply-To`/`References`, the earlier email quoted). Some threads get an answer back, up to 3 emails.
+- **Each day** every warm-up mailbox sends new emails to the others at random times inside the account's send window (Settings → Sending defaults). Day 1 is 2 emails, then 2 more each day, up to 30 a day (reached on day 15). With "weekdays only", only weekdays count as warm-up days, so the number never jumps after a weekend. You can change the start, the daily increase, the maximum and the reply rate per mailbox.
+- **The emails** are short, ordinary workplace emails in about 20 everyday situations (asking for a call, moving a call, sharing a draft, looking for a file, checking a deadline, a project update, lunch, being out, supplies, training, access to a file…), plain text, no links. Each situation has several wordings and its words (day, document, project) vary, so no two emails are the same.
+- **Replies fit the email:** a mailbox answers about 35% of the warm-up emails it gets, 15 minutes to 3 hours later, in the same thread (`Re:` subject, `In-Reply-To`/`References`, the earlier email quoted). The reply is written for that situation and uses the same details ("Do you have 15 minutes on Tuesday…" → "Sure, Tuesday at 2pm works for me."). Some threads get a short closing from the first sender ("Perfect, talk then."), up to 3 emails; "thank you" notes and reminders end with the reply.
 - **On the receiving side** the inbox check recognises warm-up emails by their `Message-ID` (nothing visible is added to the email), marks them read, and moves any that landed in **spam** back to the inbox. How often a mailbox's emails land in spam is the main health signal.
 - **Daily limit:** warm-up emails count toward the mailbox's daily limit together with campaign and test emails. If warm-up at its maximum could fill the limit, the mailbox page warns you; raise the daily limit or lower the warm-up maximum.
 - **Kept apart:** warm-up emails never appear in Replies, reply notifications, campaign numbers, Recipients or the do-not-send list.
@@ -149,6 +149,7 @@ Warm-up only between mailboxes on one provider (for example all on Hostinger) ne
 - **Partners never start threads and never send campaigns:** they aren't offered as campaign senders, and a campaign email to one of your partner addresses is cancelled. A mailbox a campaign already uses can't become a partner.
 - **Status:** each business mailbox's page shows **In Gmail spam, 7 days** (how many of its emails Gmail put in spam, and how many were moved back), apart from spam at your other mailboxes. That Gmail figure is the real inbox-placement signal. A partner's page shows what it received, its replies and what it moved out of its spam.
 - Only add accounts ColdMailer can sign in to. Warm-up never sends to an address it can't read and reply from.
+- **Give each one a person's name** (Edit mailbox → Sender name): replies are signed with it and the From line shows it. The mailbox page warns when a Gmail account is still a Business mailbox, or when the sender name is empty or not a person's (like "Gmail").
 
 Warm-up helps; it doesn't replace SPF, DKIM, DMARC, low volumes and good content.
 

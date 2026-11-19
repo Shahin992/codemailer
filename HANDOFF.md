@@ -25,6 +25,9 @@ Last updated: Nov 19, 2026 (mailbox warm-up; before that, Oct 18: open sign-ups 
   - **Switch** per mailbox (mailbox page → Warm-up). The pool is that account's mailboxes with warm-up on; never across accounts. Needs a mailbox whose inbox is read (IMAP).
   - **Ramp:** day 1 = 2 new emails, +2 a day, up to 30 (day 15); reply rate 35%. All four editable per mailbox. New emails at random times inside the account's send window (Settings), planned once a day on the account's clock; weekends skipped when the window is weekdays only.
   - **Threads:** replies 15 min – 3 h after the email is found, `Re:` + `In-Reply-To`/`References`, the earlier email quoted; at most 3 emails per thread.
+  - **Texts (rewritten Nov 19 after the user asked for more emails and proper replies):** 20 scenarios in `lib/warmup/content.ts`, each with its own subjects, wordings, replies and closings. The scenario and the words picked (day, document…) are stored in `warmup_messages.topic` (`call-request?day=Tuesday&thing=slides`), so replies reuse exactly the same details; scenarios without closings ("thank you", reminders) end after the reply. Checked by generating thousands of threads: no unfilled gaps, no repeated "Thanks"/sign-off, about 99% unique bodies. Warm-up emails already planned keep working: text is written when an email is sent; a topic from before the rewrite falls back to generic replies.
+  - **Partner set-up warnings (Nov 19):** the user's first live Gmail (mark42722752@gmail.com) was added as a Business mailbox named "Gmail"; it was fixed to Partner and "Mark". The mailbox page now warns when a Gmail account isn't a Partner, or when the sender name is empty or a word like "Gmail".
+  - **Ramp counts sending days:** with "weekdays only", weekends don't count as warm-up days (Thu 1, Fri 2, Mon 3). Before this fix Monday would have been day 5.
   - **Receiving side:** recognised by `Message-ID` (stored before sending; no visible marker), marked read, moved out of spam back to INBOX; how often a mailbox's emails land in spam is the health signal.
   - **Kept apart:** own table `warmup_messages`, so warm-up never reaches Replies, push, campaign numbers, recipients or the do-not-send list. Warm-up sends count toward the daily limit with campaign and test emails (`sentLast24h`).
   - **Status view** on the mailbox page (day, today's goal, sent today, received, replies, landed in spam / moved back, not found yet, recent warm-up emails) and a badge on the Mailboxes list.
@@ -39,7 +42,7 @@ Last updated: Nov 19, 2026 (mailbox warm-up; before that, Oct 18: open sign-ups 
     - out-of-office replies to warm-up emails, plain mail from the account's own warm-up mailboxes, and bounces about them never reach Replies, push or the do-not-send list;
     - planned times are kept only when the send job also counts them as inside the window (overnight window with weekdays only);
     - the spam-folder retry never searches with an empty Message-ID.
-  - **Automated test:** `tools/test-env/warmup-e2e.mjs` runs the real jobs against the test kit and checks 52 things (see the test kit README). It passed 3 full runs in a row on Nov 19.
+  - **Automated test:** `tools/test-env/warmup-e2e.mjs` runs the real jobs against the test kit and checks 54 things (see the test kit README). It passed 3 full runs in a row on Nov 19, and again after the text rewrite.
   - **Limit, told to the user:** warm-up only between mailboxes on one provider never reaches Gmail/Outlook; the Gmail partners are what fixes that for Gmail.
   - **Next.js notice:** the first `npm run build` run by an AI agent stops with a Next.js message that 16.4.1 has a known security advisory and suggests `next upgrade`. A second run passes. Not upgraded: the user's decision.
 

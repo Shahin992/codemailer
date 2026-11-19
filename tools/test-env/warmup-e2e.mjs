@@ -211,6 +211,9 @@ for (const r of replyRows) {
   if (ok) headerOk++; else headerBad.push(r.mid);
 }
 check("every reply has In-Reply-To, References from the first email, one 'Re:', and the quote", headerOk === replyRows.length && replyRows.length > 0, `${headerOk}/${replyRows.length} ${headerBad.slice(0, 2).join(" ")}`);
+const texts = await q(`select topic, subject, body_text from warmup_messages where user_id=$1 and body_text is not null`, [admin.id]);
+check("no unfilled gaps in any subject or text", texts.every((t) => !/[{}]|undefined/.test(`${t.subject} ${t.body_text}`)));
+check("every thread knows its kind of email (for fitting replies)", texts.every((t) => /^[a-z-]+(\?|$)/.test(t.topic ?? "")), texts.map((t) => t.topic?.split("?")[0]).slice(0, 6).join(","));
 const bodies = await q(`select body_text from warmup_messages where user_id=$1 and parent_id is null and body_text is not null`, [admin.id]);
 check("no two new emails have the same text", new Set(bodies.map((b) => b.body_text)).size === bodies.length, `${bodies.length} emails`);
 const allWarm = [...byMid.values()].filter((m) => warmIds.has(m.messageId));
