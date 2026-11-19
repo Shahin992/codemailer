@@ -20,6 +20,16 @@ Last updated: Nov 19, 2026 (mailbox warm-up; before that, Oct 18: open sign-ups 
 ## 1. Where things stand
 
 - **Live since Oct 23** on AWS EC2 (`52.64.104.27`, app in `~/coldmailer`) at **https://coldmailer.shahinkhan.online**. Production has migrations `0000`–`0012`; the user reset the production database on Nov 19. Parts of this file below were written before deploying.
+- **Nov 19 (later): app-wide redesign, phone first** (design and flow only; no feature changed; not deployed yet). The user found the UI unprofessional and missed loading and saving feedback.
+  - **Shared building blocks** (`components/ui.tsx`, `app/globals.css`): new palette and soft shadows (light and dark), rounder cards, 44 px buttons and fields on phones with focus rings, alerts with icons, status badges with a dot, compact page headers (title and button share a row on phones), plus `Skeleton`, `SectionTabs` and `DetailList`.
+  - **Frame** (`components/app-shell.tsx`): slimmer phone top bar with an account button, bottom tabs with an active pill and a spinner on the tapped tab, a bottom sheet for More/account, refined sidebar. A thin loading bar runs across the top during any page change (`components/nav-progress.tsx`).
+  - **Loading screens:** a `loading.tsx` with page-shaped placeholders (`components/skeletons.tsx`) for every signed-in page.
+  - **Save feedback:** `components/toast.tsx`. Every form result also pops up at the top of the screen (green or red) via `ActionResult`, as do redirects (`FlashToast`: mailbox saved, campaign started) and Pause/Resume.
+  - **Flow:** the mailbox page is split into **Overview · Warm-up · Settings** tabs (`?tab=`); the edit form lives under Settings and saving returns to Overview with the result. Action buttons sit in one row; search boxes have an icon; filter chips scroll sideways on phones; the notification prompt is one slim line.
+  - **Warm-up conversation** reads like an email thread (Gmail-style): earlier emails folded to a line, the latest open, quoted text behind "•••", "Email details" with Message-ID.
+  - **Bottom spacing:** `.safe-bottom`/`.safe-top` *replace* an element's padding with the iPhone safe area (0 elsewhere), which had left the phone menu's "Sign out" on the screen edge and removed padding on the sign-in, unsubscribe and super admin pages; those now use `pb-[calc(env(safe-area-inset-bottom)+…)]`.
+  - **`devIndicators: false`** in `next.config.ts` hides the Next.js "N" badge in the local dev app (it covered the phone menu). Its "Insight" pill (the Next.js security upgrade notice) still shows in dev only.
+  - **Checked** with phone screenshots (390×844, headless Chrome) of every page, in light and dark, plus the computer layout; no server errors; `npm run build` passes.
 - **Nov 19: mailbox warm-up** (not deployed yet; `npm run build` passes; checked end to end with the test kit). Migration **`0013`** must reach the server: deploying (`docker compose up -d --build`) backs up the database and applies it.
   - **Why:** the user has 6 new Hostinger business mailboxes (3 domains/subdomains, 2 mailboxes each) and wants them to warm each other up.
   - **Switch** per mailbox (mailbox page → Warm-up). The pool is that account's mailboxes with warm-up on; never across accounts. Needs a mailbox whose inbox is read (IMAP).

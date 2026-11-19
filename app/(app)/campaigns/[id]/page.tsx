@@ -17,6 +17,7 @@ import { QueueEta } from "@/components/queue-eta";
 import { SendTimeEditor } from "@/components/send-time-editor";
 import { estimateCampaignQueue, estimateTime, type QueueEstimate } from "@/lib/queue-eta";
 import { clampPage, pageInfo, readPage } from "@/lib/pagination";
+import { FlashToast } from "@/components/toast";
 
 export const metadata: Metadata = { title: "Campaign" };
 
@@ -176,6 +177,7 @@ export default async function CampaignPage({
           </form>
         </Alert>
       )}
+      {query.created && <FlashToast tone="success" text={`Campaign started: ${query.created} emails queued.`} />}
       {query.created && (
         <Alert tone="success" title="Campaign started">
           {query.created} emails queued{Number(query.skipped) > 0 ? `, ${query.skipped} skipped (invalid, duplicate or on the do-not-send list)` : ""}.{" "}

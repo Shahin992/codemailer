@@ -22,7 +22,7 @@ async function confirm(token: string) {
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <main className="safe-top safe-bottom flex min-h-dvh items-center justify-center px-4 py-10">
+    <main className="flex min-h-dvh items-center justify-center px-4 pt-[calc(env(safe-area-inset-top)+2.5rem)] pb-[calc(env(safe-area-inset-bottom)+2.5rem)]">
       <div className="w-full max-w-md rounded-xl border bg-card p-6 text-center">{children}</div>
     </main>
   );

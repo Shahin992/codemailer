@@ -51,11 +51,11 @@ export function WarmupCard({ sender, detail, settings }: { sender: Sender; detai
   return (
     <Card>
       <CardHeader
-        title="Warm-up"
+        title={isPartner ? "Warm-up partner" : "Warm-up status"}
         description={
           isPartner
-            ? "Partner mailbox: it receives warm-up emails from your business mailboxes and replies to them in the same thread. It never starts threads or sends campaigns."
-            : "Sends ordinary emails to your other warm-up mailboxes, which reply in the same thread, so this address builds a normal history of sent and received mail."
+            ? "Receives warm-up emails from your business mailboxes and replies. Never starts threads or sends campaigns."
+            : "Trades ordinary emails and replies with your other warm-up mailboxes, so this address builds a normal history."
         }
         action={on ? <Badge tone="primary">{isPartner ? "Partner" : detail.day ? `Day ${detail.day}` : "On"}</Badge> : <Badge>Off</Badge>}
       />
@@ -70,7 +70,7 @@ export function WarmupCard({ sender, detail, settings }: { sender: Sender; detai
         {(on || isPartner) && (!sender.displayName?.trim() || NOT_A_NAME.test(sender.displayName.trim())) && (
           <Alert tone="warning" title="Give it a person's name">
             Warm-up emails are signed with the sender&apos;s first name, and the From line shows the sender name
-            {sender.displayName?.trim() ? `, now “${sender.displayName.trim()}”` : ", which is empty now"}. Set a real name under Edit mailbox → Sender
+            {sender.displayName?.trim() ? `, now “${sender.displayName.trim()}”` : ", which is empty now"}. Set a real name in the Settings tab → Sender
             name (for example “Mark”) and press Test and save.
           </Alert>
         )}
@@ -90,7 +90,7 @@ export function WarmupCard({ sender, detail, settings }: { sender: Sender; detai
         )}
         {on && !sender.junkFolder && (
           <Alert tone="info">
-            No spam folder was found for this mailbox, so warm-up emails that land in its spam can&apos;t be moved back. Press Test connection above to look
+            No spam folder was found for this mailbox, so warm-up emails that land in its spam can&apos;t be moved back. Press Test connection on the Overview tab to look
             again.
           </Alert>
         )}
@@ -98,8 +98,8 @@ export function WarmupCard({ sender, detail, settings }: { sender: Sender; detai
           <Alert tone="warning" title="Warm-up can fill the daily limit">
             At its busiest, warm-up sends about {busiestDay} emails a day from this mailbox, and its daily limit is {sender.dailyLimit}.
             {isPartner
-              ? " Raise the daily limit (Edit mailbox below) or lower its reply rate."
-              : " Warm-up and campaigns share that limit, so raise the daily limit (Edit mailbox below) or lower the warm-up maximum to leave room for campaigns."}
+              ? " Raise the daily limit (Settings tab) or lower its reply rate."
+              : " Warm-up and campaigns share that limit, so raise the daily limit (Settings tab) or lower the warm-up maximum to leave room for campaigns."}
           </Alert>
         )}
 
