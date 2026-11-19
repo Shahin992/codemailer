@@ -20,6 +20,7 @@ import { estimateSendingDays, toZonedInputValue, windowMinutes, zonedInputToDate
 import { timezoneName, type TimezoneGroup } from "@/lib/timezones";
 import { TimezoneSelect } from "@/components/timezone-select";
 import type { Provider } from "@/lib/db/schema";
+import { ActionResult } from "@/components/toast";
 
 export type SenderOption = {
   id: string;
@@ -967,9 +968,11 @@ export function CampaignForm({
           </Button>
         </div>
         {testState && <Alert tone={testState.ok ? "success" : "danger"}>{testState.text}</Alert>}
+        {testState && <ActionResult toastOnly state={testState.ok ? { message: testState.text } : { error: testState.text }} />}
       </Card>
 
       {error && <Alert tone="danger">{error}</Alert>}
+      {error && <ActionResult toastOnly state={{ error }} />}
       {uploaded && (
         <Card className="space-y-2 p-4">
           <p className="text-sm">

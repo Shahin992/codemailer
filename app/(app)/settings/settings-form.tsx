@@ -3,9 +3,10 @@
 import { saveSettings, type FormState } from "@/app/actions/settings";
 import { SubmitButton, useActionForm } from "@/components/client";
 import { TimezoneSelect } from "@/components/timezone-select";
-import { Alert, Card, CardHeader, Checkbox, Field, Input, Textarea } from "@/components/ui";
+import { Card, CardHeader, Checkbox, Field, Input, Textarea } from "@/components/ui";
 import type { TimezoneGroup } from "@/lib/timezones";
 import { LogoField, type LogoInfo } from "./logo-field";
+import { ActionResult } from "@/components/toast";
 
 type Values = {
   footerText: string;
@@ -66,8 +67,7 @@ export function SettingsForm({ initial, zones, logo }: { initial: Values; zones:
         </div>
       </Card>
 
-      {state.error && <Alert tone="danger">{state.error}</Alert>}
-      {state.message && <Alert tone="success">{state.message}</Alert>}
+      <ActionResult state={state} />
       <div className="flex justify-end">
         <SubmitButton pending={pending} className="w-full sm:w-auto">
           Save settings

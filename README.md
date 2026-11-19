@@ -124,7 +124,7 @@ Start daily limits low (Hostinger about 20, Gmail about 10) and raise them slowl
 
 New mailboxes have no history, and mail providers distrust addresses that only ever send. Warm-up gives them a history of ordinary sent **and** received mail before (and while) they send campaigns.
 
-**Turn it on:** open a mailbox (Mailboxes → the address) → **Warm-up** → **Turn on warm-up**. Do it for every mailbox that should take part. The mailboxes with warm-up on in one account form a pool and email each other; warm-up never crosses accounts, and a mailbox needs an inbox ColdMailer reads (IMAP).
+**Turn it on:** open a mailbox (Mailboxes → the address) → the **Warm-up** tab → **Turn on warm-up**. Do it for every mailbox that should take part. The mailboxes with warm-up on in one account form a pool and email each other; warm-up never crosses accounts, and a mailbox needs an inbox ColdMailer reads (IMAP).
 
 **What happens:**
 
@@ -138,6 +138,8 @@ New mailboxes have no history, and mail providers distrust addresses that only e
 **The mailbox page shows:** the warm-up day and today's goal, sent today (new and replies), received today, replies in the last 7 days, how many of its emails landed in spam and were moved back, emails not found yet, and the latest warm-up emails. The Mailboxes list shows the warm-up day and a warning badge when some of its emails landed in spam.
 
 **Warm-up history:** on the mailbox page, **See all conversations** (or any recent warm-up email) opens that mailbox's warm-up conversations: all-time numbers (conversations, sent, received, how often its emails landed in spam), a search, and filters (started here, started by others, landed in spam, waiting to send). A conversation opens as a chat: this mailbox's emails on the right, the other mailbox's on the left, each with when it was sent and where it landed (inbox, or spam and moved back). The quoted earlier emails and the Message-ID are under "Show the full email".
+
+The mailbox page has three tabs: **Overview** (sending, actions, domain check), **Warm-up** and **Settings** (the mailbox's connection, name and daily limit).
 
 **Turning it off** cancels that mailbox's waiting warm-up emails. Turning it on again continues the ramp where it stopped.
 

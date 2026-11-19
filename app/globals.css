@@ -1,47 +1,51 @@
 @import "tailwindcss";
 
 :root {
-  --bg: #f5f6f8;
+  --bg: #f3f5f9;
   --card: #ffffff;
-  --fg: #12141a;
-  --muted: #646b78;
-  --border: #e3e6eb;
+  --fg: #0f172a;
+  --muted: #64748b;
+  --border: #e4e8ef;
   --primary: #2563eb;
   --primary-hover: #1d4ed8;
   --primary-fg: #ffffff;
-  --primary-soft: #e8f1ff;
-  --success: #157f3c;
-  --success-soft: #e3f6ea;
-  --warning: #a35c00;
-  --warning-soft: #fff3dc;
-  --danger: #c02626;
-  --danger-soft: #fdeaea;
+  --primary-soft: #eaf1ff;
+  --success: #15803d;
+  --success-soft: #e7f7ed;
+  --warning: #b45309;
+  --warning-soft: #fff4e0;
+  --danger: #dc2626;
+  --danger-soft: #fdecec;
   --info: #0e7490;
-  --info-soft: #e0f5f9;
-  --neutral-soft: #eef0f3;
+  --info-soft: #e3f6fa;
+  --neutral-soft: #eef1f6;
+  --elev-card: 0 1px 2px rgb(15 23 42 / 0.04), 0 1px 3px rgb(15 23 42 / 0.05);
+  --elev-raised: 0 8px 24px -8px rgb(15 23 42 / 0.18), 0 2px 6px rgb(15 23 42 / 0.06);
   color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0d0f14;
-    --card: #161921;
-    --fg: #e8eaee;
-    --muted: #9aa1ad;
-    --border: #2a2f3a;
-    --primary: #60a5fa;
-    --primary-hover: #93c5fd;
-    --primary-fg: #0d0f14;
-    --primary-soft: #16264a;
-    --success: #5fd38a;
-    --success-soft: #12301f;
-    --warning: #f2b552;
-    --warning-soft: #33270f;
-    --danger: #f27878;
-    --danger-soft: #3a1717;
+    --bg: #0b0e14;
+    --card: #141821;
+    --fg: #e7eaf0;
+    --muted: #94a0b4;
+    --border: #262c38;
+    --primary: #5b9bff;
+    --primary-hover: #8ab8ff;
+    --primary-fg: #0b0e14;
+    --primary-soft: #15233f;
+    --success: #4ade80;
+    --success-soft: #10291b;
+    --warning: #fbbf24;
+    --warning-soft: #2d2410;
+    --danger: #f87171;
+    --danger-soft: #341617;
     --info: #67d4e8;
-    --info-soft: #12313a;
-    --neutral-soft: #222631;
+    --info-soft: #102e36;
+    --neutral-soft: #1d2230;
+    --elev-card: 0 1px 2px rgb(0 0 0 / 0.3);
+    --elev-raised: 0 10px 30px -10px rgb(0 0 0 / 0.6);
     color-scheme: dark;
   }
 }
@@ -66,6 +70,25 @@
   --color-info-soft: var(--info-soft);
   --color-neutral-soft: var(--neutral-soft);
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --shadow-card: var(--elev-card);
+  --shadow-raised: var(--elev-raised);
+  --animate-shimmer: shimmer 1.4s ease-in-out infinite;
+  --animate-toast-in: toast-in 0.22s ease-out;
+  --animate-progress: progress 1.1s ease-in-out infinite;
+
+  @keyframes shimmer {
+    0% { opacity: 0.55; }
+    50% { opacity: 1; }
+    100% { opacity: 0.55; }
+  }
+  @keyframes toast-in {
+    from { opacity: 0; transform: translateY(-8px) scale(0.98); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes progress {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(250%); }
+  }
 }
 
 @layer base {
@@ -92,6 +115,7 @@
     background: var(--bg);
     color: var(--fg);
     font-family: var(--font-sans);
+    font-feature-settings: "cv11", "ss01";
     min-height: 100dvh;
     /* Long email addresses, links and subjects wrap instead of pushing the layout wider than the screen. */
     overflow-wrap: anywhere;
@@ -114,6 +138,8 @@
   }
 }
 
+/* These set the padding to just the iPhone home-bar / notch area. Use them only on an element with no padding of its own
+   on that side; to keep some space as well, use pb-[calc(env(safe-area-inset-bottom)+1rem)] instead. */
 .safe-bottom {
   padding-bottom: env(safe-area-inset-bottom);
 }

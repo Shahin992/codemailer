@@ -3,7 +3,8 @@
 import { useEffect, useRef } from "react";
 import { changePassword, type TeamState } from "@/app/actions/team";
 import { PasswordInput, SubmitButton, useActionForm } from "@/components/client";
-import { Alert, Card, CardHeader, Field } from "@/components/ui";
+import { Card, CardHeader, Field } from "@/components/ui";
+import { ActionResult } from "@/components/toast";
 
 export function PasswordCard({ title = "Change your password", description }: { title?: string; description?: string }) {
   const { state, onSubmit, pending } = useActionForm<TeamState>(changePassword, {});
@@ -25,8 +26,7 @@ export function PasswordCard({ title = "Change your password", description }: { 
           <PasswordInput id="confirm-password" name="confirm" autoComplete="new-password" required />
         </Field>
         <div className="space-y-3 sm:col-span-3">
-          {state.error && <Alert tone="danger">{state.error}</Alert>}
-          {state.message && <Alert tone="success">{state.message}</Alert>}
+          <ActionResult state={state} />
           <div className="flex justify-end">
             <SubmitButton pending={pending} variant="secondary" className="w-full sm:w-auto">
               Change password

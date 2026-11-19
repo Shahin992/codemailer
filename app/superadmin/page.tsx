@@ -71,7 +71,7 @@ export default async function SuperAdminPage({ searchParams }: { searchParams: P
   return (
     <>
       <Header email={me.email} />
-      <main className="safe-bottom mx-auto max-w-3xl space-y-5 px-4 py-6">
+      <main className="mx-auto max-w-3xl space-y-5 px-4 pt-6 pb-[calc(env(safe-area-inset-bottom)+1.5rem)]">
         <div>
           <h1 className="text-xl font-semibold md:text-2xl">Accounts</h1>
           <p className="mt-1 text-sm text-muted">Nobody can use ColdMailer until you approve their sign-up. Each account's mailboxes, campaigns and replies stay private to it.</p>

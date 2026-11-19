@@ -144,8 +144,32 @@ export function PushToggle({ vapidPublicKey, compact = false, devices }: { vapid
     on: "This device gets a notification for every new reply.",
   };
 
+  // At the top of the Dashboard and Replies: one slim line, not a full card.
+  if (compact) {
+    return (
+      <div className="mb-4">
+        <div className="flex items-center gap-3 rounded-xl border border-primary/15 bg-primary-soft px-3 py-2">
+          {status === "ios-needs-install" ? <Smartphone className="size-4 shrink-0 text-primary" /> : <BellOff className="size-4 shrink-0 text-primary" />}
+          <p className="min-w-0 flex-1 text-[13px] leading-snug">
+            {status === "off" ? "Get a notification here when someone replies." : text[status]}
+          </p>
+          {status === "off" && (
+            <Button size="sm" onClick={enable} disabled={busy} className="h-8 shrink-0 px-3 text-[13px] md:h-8">
+              {busy ? "Turning on…" : "Turn on"}
+            </Button>
+          )}
+        </div>
+        {message && (
+          <div className="mt-2">
+            <Alert tone={message.tone}>{message.text}</Alert>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
-    <Card className={compact ? "mb-4 p-3" : "p-4 md:p-5"}>
+    <Card className="p-4 md:p-5">
       <div className="flex flex-wrap items-center gap-3">
         <span className="grid size-9 shrink-0 place-items-center rounded-full bg-primary-soft text-primary">
           {status === "ios-needs-install" ? <Smartphone className="size-4.5" /> : status === "on" ? <Bell className="size-4.5" /> : <BellOff className="size-4.5" />}

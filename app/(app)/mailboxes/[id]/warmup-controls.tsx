@@ -4,13 +4,12 @@ import { Flame, Pause } from "lucide-react";
 import { useActionState, useState } from "react";
 import { saveWarmupSettings, setWarmup, type WarmupFormState } from "@/app/actions/warmup";
 import { SubmitButton, useActionForm } from "@/components/client";
-import { Alert, Field, Input, Select } from "@/components/ui";
+import { Field, Input, Select } from "@/components/ui";
 import { WARMUP_LIMITS } from "@/lib/warmup/schedule";
+import { ActionResult } from "@/components/toast";
 
 function Result({ state }: { state: WarmupFormState }) {
-  if (state.error) return <Alert tone="danger">{state.error}</Alert>;
-  if (state.message) return <Alert tone="success">{state.message}</Alert>;
-  return null;
+  return <ActionResult state={state} />;
 }
 
 /** The on/off switch. */

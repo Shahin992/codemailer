@@ -6,6 +6,7 @@ import { PasswordInput, SubmitButton, useActionForm } from "@/components/client"
 import { Alert, Card, CardHeader, Checkbox, Field, Input, Select, cn } from "@/components/ui";
 import type { Provider, Security } from "@/lib/db/schema";
 import { PROVIDER_PRESETS, SECURITY_LABELS, SMTP_TEMPLATES, UNSUPPORTED_NOTE, securityForPort } from "@/lib/providers";
+import { ActionResult } from "@/components/toast";
 
 export type MailboxFormValues = {
   id?: string;
@@ -105,7 +106,7 @@ export function MailboxForm({
       {initial?.id && <input type="hidden" name="id" value={initial.id} />}
       <input type="hidden" name="provider" value={provider} />
 
-      {state.error && <Alert tone="danger">{state.error}</Alert>}
+      <ActionResult state={{ error: state.error }} />
 
       <Card className="space-y-5 p-4 md:p-5">
         <div>

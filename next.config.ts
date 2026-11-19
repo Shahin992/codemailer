@@ -6,6 +6,8 @@ const nextConfig: NextConfig = {
   // Mail and push libraries use Node APIs; keep them out of the bundle.
   serverExternalPackages: ["imapflow", "mailparser", "nodemailer", "web-push", "pg"],
   poweredByHeader: false,
+  // The "N" developer badge sat on top of the phone menu in the local test app. Errors still show; production never had it.
+  devIndicators: false,
   async headers() {
     return [
       {

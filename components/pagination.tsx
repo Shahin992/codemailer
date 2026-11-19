@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Search } from "lucide-react";
 import Link from "next/link";
 import { PageSizeSelect } from "@/components/page-size-select";
 import { cn } from "@/components/ui";
@@ -6,7 +6,7 @@ import { listHref, pageNumbers, type PageInfo } from "@/lib/pagination";
 
 type Search = Record<string, string | string[] | undefined>;
 
-const linkBase = "inline-flex h-9 min-w-9 items-center justify-center rounded-lg px-2 text-sm font-medium transition-colors";
+const linkBase = "inline-flex h-10 min-w-10 items-center justify-center rounded-xl px-2 text-sm font-medium transition-colors md:h-9 md:min-w-9";
 
 /** "Showing 26–50 of 1,234" with page links and a page-size choice. Filters in the URL are kept. */
 export function Pagination({ info, path, search, noun = "results", className }: { info: PageInfo; path: string; search: Search; noun?: string; className?: string }) {
@@ -85,17 +85,22 @@ export function Pagination({ info, path, search, noun = "results", className }: 
 /** A search box that submits as a GET form, so the query lives in the URL and paging keeps it. */
 export function ListSearch({ name = "q", value, placeholder, hidden }: { name?: string; value: string; placeholder: string; hidden?: Record<string, string | undefined> }) {
   return (
-    <form className="flex gap-2" role="search">
+    <form className="relative flex gap-2" role="search">
       {Object.entries(hidden ?? {}).map(([key, v]) => (v ? <input key={key} type="hidden" name={key} value={v} /> : null))}
+      <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-muted" aria-hidden />
       <input
         name={name}
         type="search"
         defaultValue={value}
         placeholder={placeholder}
         aria-label={placeholder}
-        className="h-11 w-full rounded-lg border bg-card px-3 text-fg placeholder:text-muted/70 focus:outline-2 focus:outline-primary md:h-10"
+        enterKeyHint="search"
+        className="h-12 w-full rounded-xl border bg-card pr-3 pl-10 text-fg shadow-[inset_0_1px_1px_rgb(15_23_42/0.03)] transition-[border-color,box-shadow] placeholder:text-muted/70 focus:border-primary focus:ring-4 focus:ring-primary/15 focus:outline-none md:h-10"
       />
-      <button type="submit" className="h-11 shrink-0 rounded-lg border bg-card px-4 text-sm font-medium hover:bg-neutral-soft md:h-10">
+      <button
+        type="submit"
+        className="h-12 shrink-0 rounded-xl border bg-card px-4 text-sm font-semibold shadow-card transition-colors hover:bg-neutral-soft active:scale-[0.98] md:h-10"
+      >
         Search
       </button>
     </form>
@@ -115,8 +120,9 @@ export function FilterChips({
   options: { value?: string; label: string; count?: number }[];
 }) {
   const current = (Array.isArray(search[param]) ? search[param]?.[0] : search[param]) as string | undefined;
+  // One row that scrolls sideways on a phone (no second line of chips), wrapping on wider screens.
   return (
-    <div className="flex flex-wrap gap-1.5">
+    <div className="-mx-4 flex gap-1.5 overflow-x-auto px-4 pb-0.5 [scrollbar-width:none] md:mx-0 md:flex-wrap md:overflow-visible md:px-0 [&::-webkit-scrollbar]:hidden">
       {options.map((o) => {
         const active = (current ?? "") === (o.value ?? "");
         return (
@@ -125,12 +131,12 @@ export function FilterChips({
             href={listHref(path, search, { [param]: o.value, page: 1 })}
             scroll={false}
             className={cn(
-              "shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium",
-              active ? "border-primary bg-primary-soft text-primary" : "bg-card text-muted hover:bg-neutral-soft",
+              "inline-flex h-9 shrink-0 items-center rounded-full border px-3.5 text-[13px] font-medium whitespace-nowrap transition-colors md:h-8 md:text-xs",
+              active ? "border-primary bg-primary text-primary-fg shadow-card" : "bg-card text-muted hover:bg-neutral-soft hover:text-fg",
             )}
           >
             {o.label}
-            {o.count !== undefined && <span className="ml-1 tabular-nums">{o.count.toLocaleString()}</span>}
+            {o.count !== undefined && <span className={cn("ml-1.5 tabular-nums", active ? "opacity-80" : "opacity-70")}>{o.count.toLocaleString()}</span>}
           </Link>
         );
       })}

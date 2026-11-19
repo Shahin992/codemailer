@@ -73,7 +73,7 @@ export default async function WarmupHistoryPage({ params, searchParams }: { para
 
   return (
     <div className="mx-auto max-w-3xl space-y-4">
-      <Link href={`/mailboxes/${id}`} className="inline-flex items-center gap-1 text-sm text-muted hover:text-fg">
+      <Link href={`/mailboxes/${id}?tab=warmup`} className="inline-flex items-center gap-1 text-sm font-medium text-muted hover:text-fg">
         <ArrowLeft className="size-4" /> Back to the mailbox
       </Link>
 
