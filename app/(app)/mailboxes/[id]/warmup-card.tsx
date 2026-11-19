@@ -1,10 +1,11 @@
 import type { ReactNode } from "react";
-import { ArrowDownLeft, ArrowUpRight } from "lucide-react";
+import Link from "next/link";
 import { Time } from "@/components/client";
 import { Alert, Badge, Card, CardHeader } from "@/components/ui";
 import type { Sender, Settings } from "@/lib/db/schema";
 import { isGmailMailbox } from "@/lib/warmup/schedule";
-import type { WarmupActivity, WarmupDetail } from "@/lib/warmup/status";
+import type { WarmupDetail } from "@/lib/warmup/status";
+import { Avatar, PlacementPill } from "./warmup/parts";
 import { WarmupSettingsForm, WarmupSwitch } from "./warmup-controls";
 
 type Tone = "success" | "warning" | "danger" | undefined;
@@ -12,7 +13,7 @@ type Tone = "success" | "warning" | "danger" | undefined;
 function Figure({ label, value, hint, tone }: { label: string; value: ReactNode; hint?: ReactNode; tone?: Tone }) {
   const color = tone === "danger" ? "text-danger" : tone === "warning" ? "text-warning" : tone === "success" ? "text-success" : "";
   return (
-    <div className="min-w-0">
+    <div className="min-w-0 bg-card px-3 py-2.5">
       <p className="text-xs text-muted">{label}</p>
       <p className={`text-lg font-semibold tabular-nums ${color}`}>{value}</p>
       {hint && <p className="text-xs text-muted">{hint}</p>}
@@ -20,15 +21,6 @@ function Figure({ label, value, hint, tone }: { label: string; value: ReactNode;
   );
 }
 
-function activityLabel(a: WarmupActivity): { text: string; tone: "neutral" | "success" | "warning" | "danger" | "info" } {
-  if (a.status === "scheduled") return { text: "Planned", tone: "neutral" };
-  if (a.status === "sending") return { text: "Sending", tone: "info" };
-  if (a.status === "failed") return { text: "Failed", tone: "danger" };
-  if (a.status === "cancelled") return { text: "Cancelled", tone: "neutral" };
-  if (a.landedIn === "spam") return a.rescuedAt ? { text: "Spam → moved to inbox", tone: "warning" } : { text: "In spam", tone: "danger" };
-  if (a.landedIn === "inbox") return { text: a.direction === "out" ? "Reached inbox" : "Received", tone: "success" };
-  return { text: a.direction === "out" ? "Sent, not found yet" : "On its way", tone: "info" };
-}
 
 // Sender names that aren't a person's: warm-up emails are signed with the sender's first name and the From line shows it.
 const NOT_A_NAME = /^(gmail|google|googlemail|outlook|hotmail|yahoo|hostinger|zoho|mail|email|e-mail|inbox|support|info|admin|test|user)$/i;
@@ -113,7 +105,7 @@ export function WarmupCard({ sender, detail, settings }: { sender: Sender; detai
 
         {on && !isPartner && (
           <>
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border bg-border sm:grid-cols-4">
               <Figure label="Warm-up day" value={detail.day ?? "—"} hint={detail.target !== null ? `Goal today: ${detail.target} new` : undefined} />
               <Figure
                 label="Sent today"
@@ -123,7 +115,7 @@ export function WarmupCard({ sender, detail, settings }: { sender: Sender; detai
               <Figure label="Received today" value={detail.today.received} />
               <Figure label="Replies, 7 days" value={detail.week.repliesReceived} hint={`received · ${detail.week.repliesSent} sent`} />
             </div>
-            <div className="grid grid-cols-2 gap-4 border-t pt-4 sm:grid-cols-4">
+            <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border bg-border sm:grid-cols-4">
               {showGmail ? (
                 <>
                   <Figure
@@ -157,7 +149,7 @@ export function WarmupCard({ sender, detail, settings }: { sender: Sender; detai
         )}
 
         {on && isPartner && (
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border bg-border sm:grid-cols-4">
             <Figure label="Received today" value={detail.today.receivedNew} hint={`new emails, at most ${sender.warmupReceiveMax} a day`} />
             <Figure label="Replies sent today" value={detail.today.repliesSent} />
             <Figure label="Received, 7 days" value={detail.week.received} hint={`${detail.week.repliesSent} replies sent`} />
@@ -192,35 +184,42 @@ export function WarmupCard({ sender, detail, settings }: { sender: Sender; detai
 
         {detail.recent.length > 0 && (
           <div className="border-t pt-4">
-            <h3 className="mb-2 text-sm font-semibold">Recent warm-up emails</h3>
+            <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+              <h3 className="text-sm font-semibold">Recent warm-up emails</h3>
+              <Link href={`/mailboxes/${sender.id}/warmup`} className="text-sm font-medium text-primary hover:underline">
+                See all conversations
+              </Link>
+            </div>
             <ul className="divide-y">
-              {detail.recent.map((a) => {
-                const label = activityLabel(a);
-                return (
-                  <li key={a.id} className="flex items-start gap-3 py-2 text-sm">
-                    {a.direction === "out" ? (
-                      <ArrowUpRight className="mt-0.5 size-4 shrink-0 text-muted" aria-label="Sent" />
-                    ) : (
-                      <ArrowDownLeft className="mt-0.5 size-4 shrink-0 text-muted" aria-label="Received" />
-                    )}
+              {detail.recent.map((a) => (
+                <li key={a.id}>
+                  <Link
+                    href={`/mailboxes/${sender.id}/warmup/${a.threadId}`}
+                    className="-mx-2 flex items-start gap-3 rounded-lg px-2 py-2.5 transition-colors hover:bg-neutral-soft"
+                  >
+                    <Avatar name={a.partnerName} email={a.partner} size="sm" />
+                    {/* Name and time on one line, the subject under it, then where it landed: readable at phone width. */}
                     <div className="min-w-0 flex-1">
-                      <p className="truncate">
-                        <span className="text-muted">{a.direction === "out" ? "To" : "From"}</span> {a.partner}
-                        {a.isReply && <span className="text-muted"> · reply</span>}
-                      </p>
+                      <div className="flex items-baseline justify-between gap-2">
+                        <p className="min-w-0 truncate text-sm">
+                          <span className="text-muted">{a.direction === "out" ? "To " : "From "}</span>
+                          <span className="font-medium">{a.partnerName || a.partner}</span>
+                          {a.isReply && <span className="text-muted"> · reply</span>}
+                        </p>
+                        <span className="shrink-0 text-xs text-muted">
+                          <Time value={a.at} mode="relative" />
+                        </span>
+                      </div>
                       <p className="truncate text-xs text-muted">{a.subject ?? "Text is written when it's sent"}</p>
-                      {a.status === "failed" && a.error && <p className="text-xs break-words text-danger">{a.error}</p>}
-                      {a.status === "scheduled" && a.error && <p className="text-xs break-words text-muted">{a.error}</p>}
+                      <div className="mt-1">
+                        <PlacementPill m={a} />
+                      </div>
+                      {a.status === "failed" && a.error && <p className="mt-1 text-xs break-words text-danger">{a.error}</p>}
+                      {a.status === "scheduled" && a.error && <p className="mt-1 text-xs break-words text-muted">{a.error}</p>}
                     </div>
-                    <div className="shrink-0 text-right">
-                      <Badge tone={label.tone}>{label.text}</Badge>
-                      <p className="mt-0.5 text-xs text-muted">
-                        <Time value={a.at} mode="relative" />
-                      </p>
-                    </div>
-                  </li>
-                );
-              })}
+                  </Link>
+                </li>
+              ))}
             </ul>
           </div>
         )}
