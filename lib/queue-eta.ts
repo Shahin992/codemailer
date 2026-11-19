@@ -1,6 +1,6 @@
 import { and, asc, eq, gt, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { campaignSenders, campaigns, messages, senders, testSends, type Campaign } from "@/lib/db/schema";
+import { campaignSenders, campaigns, messages, senders, testSends, warmupMessages, type Campaign } from "@/lib/db/schema";
 import { MIN_GAP_MINUTES, nextWindowOpen, windowMinutes } from "@/lib/time-window";
 
 /**
@@ -116,12 +116,17 @@ export async function estimateCampaignQueue(campaignId: string): Promise<Map<str
 
   const ids = active.map((s) => s.id);
   const since = sql`now() - interval '24 hours'`;
-  const [sentRows, testRows] = ids.length
+  const [sentRows, testRows, warmupRows] = ids.length
     ? await Promise.all([
         db.select({ senderId: messages.senderId, at: messages.sentAt }).from(messages).where(and(inArray(messages.senderId, ids), gt(messages.sentAt, since))),
         db.select({ senderId: testSends.senderId, at: testSends.sentAt }).from(testSends).where(and(inArray(testSends.senderId, ids), gt(testSends.sentAt, since))),
+        // Warm-up emails share the daily limit. Ones still to come today aren't simulated, so estimates can run a little early.
+        db
+          .select({ senderId: warmupMessages.senderId, at: warmupMessages.sentAt })
+          .from(warmupMessages)
+          .where(and(inArray(warmupMessages.senderId, ids), gt(warmupMessages.sentAt, since))),
       ])
-    : [[], []];
+    : [[], [], []];
 
   const span = windowMinutes(campaign.windowStart, campaign.windowEnd);
   const now = Date.now();
@@ -132,7 +137,7 @@ export async function estimateCampaignQueue(campaignId: string): Promise<Map<str
     gap: Math.max(span / Math.max(s.dailyLimit, 1), MIN_GAP_MINUTES) * 60_000,
     free: Math.max(s.nextSendAt.getTime(), now),
     restUntil: s.restUntil?.getTime() ?? 0,
-    recent: [...sentRows, ...testRows]
+    recent: [...sentRows, ...testRows, ...warmupRows]
       .filter((r) => r.senderId === s.id && r.at)
       .map((r) => r.at!.getTime())
       .sort((a, b) => a - b),

@@ -77,6 +77,22 @@ export const senders = pgTable("senders", {
   lastErrorAt: timestamp("last_error_at", tz),
   imapState: jsonb("imap_state").$type<ImapState>().notNull().default(sql`'{}'::jsonb`),
   lastCheckedAt: timestamp("last_checked_at", tz),
+  // Warm-up: this mailbox trades ordinary-looking emails and replies with the account's other warm-up mailboxes
+  // (never another account's), see lib/warmup/. New warm-up emails a day = start + increase × (day − 1), up to max,
+  // at random times inside the account's send window. Warm-up sends count toward daily_limit like campaign sends.
+  warmupEnabled: boolean("warmup_enabled").notNull().default(false),
+  // "sender": sends new warm-up emails and replies (a business mailbox). "partner": only receives warm-up emails
+  // and replies to them (e.g. a Gmail account you can sign in to), at most warmup_receive_max new ones a day,
+  // and never sends campaigns.
+  warmupRole: text("warmup_role", { enum: ["sender", "partner"] }).notNull().default("sender"),
+  warmupReceiveMax: integer("warmup_receive_max").notNull().default(3),
+  warmupStartedAt: timestamp("warmup_started_at", tz), // day 1 of the ramp; moved forward by the time warm-up was off
+  warmupPausedAt: timestamp("warmup_paused_at", tz), // when warm-up was last turned off
+  warmupPlannedOn: text("warmup_planned_on"), // local date (YYYY-MM-DD, account timezone) whose emails are already planned
+  warmupStart: integer("warmup_start").notNull().default(2),
+  warmupIncrease: integer("warmup_increase").notNull().default(2),
+  warmupMax: integer("warmup_max").notNull().default(30),
+  warmupReplyRate: integer("warmup_reply_rate").notNull().default(35), // % of received warm-up emails it answers
   createdAt: timestamp("created_at", tz).notNull().defaultNow(),
 }, (t) => [uniqueIndex("senders_user_email_idx").on(t.userId, t.email)]);
 
@@ -203,6 +219,46 @@ export const replies = pgTable(
   ],
 );
 
+export const WARMUP_STATUSES = ["scheduled", "sending", "sent", "failed", "cancelled"] as const;
+export type WarmupStatus = (typeof WARMUP_STATUSES)[number];
+
+// Warm-up emails between one account's own mailboxes. Kept apart from messages/replies/recipients on purpose:
+// they never show up in campaign stats, the Replies list, recipient lists, push notifications or the
+// do-not-send list. The receiving mailbox recognises one by its Message-ID (saved here before sending), so
+// nothing visible or unusual is added to the email itself.
+export const warmupMessages = pgTable(
+  "warmup_messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    senderId: uuid("sender_id").notNull().references(() => senders.id, { onDelete: "cascade" }), // sends it
+    toSenderId: uuid("to_sender_id").notNull().references(() => senders.id, { onDelete: "cascade" }), // receives it
+    parentId: uuid("parent_id").references((): AnyPgColumn => warmupMessages.id, { onDelete: "cascade" }), // set for replies
+    threadId: uuid("thread_id").notNull(), // the first email's id
+    topic: text("topic"), // what the thread is about (lib/warmup/content.ts), so replies fit it
+    subject: text("subject"), // written when it's sent
+    bodyText: text("body_text"),
+    messageIdHeader: text("message_id_header").unique(),
+    status: text("status", { enum: WARMUP_STATUSES }).notNull().default("scheduled"),
+    scheduledAt: timestamp("scheduled_at", tz).notNull(),
+    attempts: integer("attempts").notNull().default(0),
+    sentAt: timestamp("sent_at", tz),
+    error: text("error"),
+    // Found by the receiving mailbox's inbox check: where it landed, and when it was moved out of spam.
+    receivedAt: timestamp("received_at", tz),
+    landedIn: text("landed_in", { enum: ["inbox", "spam"] }),
+    rescuedAt: timestamp("rescued_at", tz),
+    createdAt: timestamp("created_at", tz).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", tz).notNull().defaultNow(),
+  },
+  (t) => [
+    index("warmup_status_scheduled_idx").on(t.status, t.scheduledAt),
+    index("warmup_sender_sent_idx").on(t.senderId, t.sentAt),
+    index("warmup_to_sender_received_idx").on(t.toSenderId, t.receivedAt),
+    index("warmup_user_created_idx").on(t.userId, t.createdAt),
+  ],
+);
+
 // Original URLs behind tracked links (only when click tracking is on)
 export const trackingLinks = pgTable(
   "tracking_links",
@@ -297,3 +353,4 @@ export type Campaign = typeof campaigns.$inferSelect;
 export type Message = typeof messages.$inferSelect;
 export type Reply = typeof replies.$inferSelect;
 export type Settings = typeof settings.$inferSelect;
+export type WarmupMessage = typeof warmupMessages.$inferSelect;

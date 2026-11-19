@@ -7,14 +7,16 @@ import { Time } from "@/components/client";
 import { Alert, Badge, Card, CardHeader, Progress, StatusBadge } from "@/components/ui";
 import { db } from "@/lib/db";
 import { senders } from "@/lib/db/schema";
-import { sentLast24h } from "@/lib/queries";
+import { sentLast24h, warmupSentLast24h } from "@/lib/queries";
 import { domainOf } from "@/lib/mail/compose";
 import { checkDomainDns } from "@/lib/mail/dns";
 import { PROVIDER_PRESETS, SECURITY_LABELS } from "@/lib/providers";
 import { requireSession } from "@/lib/auth";
 import { getSettings } from "@/lib/settings";
 import { MailboxForm } from "../mailbox-form";
+import { warmupDetail } from "@/lib/warmup/status";
 import { MailboxActions } from "./mailbox-actions";
+import { WarmupCard } from "./warmup-card";
 
 export const metadata: Metadata = { title: "Mailbox" };
 
@@ -42,13 +44,14 @@ export default async function MailboxPage({
   const query = await searchParams;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
   const [row] = await db
-    .select({ sender: senders, sent24h: sentLast24h })
+    .select({ sender: senders, sent24h: sentLast24h, warmup24h: warmupSentLast24h })
     .from(senders)
     .where(and(eq(senders.id, id), eq(senders.userId, me.id)));
   if (!row) notFound();
-  const { sender, sent24h } = row;
-  const [settings, dns, replyTargets] = await Promise.all([
-    getSettings(me.id),
+  const { sender, sent24h, warmup24h } = row;
+  const settings = await getSettings(me.id);
+  const [warmup, dns, replyTargets] = await Promise.all([
+    warmupDetail(sender, settings.timezone),
     checkDomainDns(domainOf(sender.email)),
     db
       .select({ id: senders.id, email: senders.email })
@@ -90,7 +93,7 @@ export default async function MailboxPage({
         <div className="grid gap-4 p-4 sm:grid-cols-3 md:p-5">
           <div className="sm:col-span-3">
             <div className="mb-1.5 flex justify-between text-sm">
-              <span className="text-muted">Sent in the last 24 hours</span>
+              <span className="text-muted">Sent in the last 24 hours{warmup24h > 0 && `, ${warmup24h} of them warm-up`}</span>
               <span className="font-medium tabular-nums">
                 {sent24h} / {sender.dailyLimit}
               </span>
@@ -136,6 +139,8 @@ export default async function MailboxPage({
           <MailboxActions id={sender.id} status={sender.status} testEmail={settings.testEmail ?? me.email} />
         </div>
       </Card>
+
+      <WarmupCard sender={sender} detail={warmup} settings={settings} />
 
       {dns && (
         <Card>

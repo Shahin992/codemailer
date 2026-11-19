@@ -1,9 +1,9 @@
 import { sql } from "drizzle-orm";
-import { messages, testSends } from "@/lib/db/schema";
+import { messages, testSends, warmupMessages } from "@/lib/db/schema";
 
 /**
- * Emails sent by a mailbox in the last 24 hours, campaign emails plus test emails
- * (Hostinger and Gmail count the same rolling window).
+ * Emails sent by a mailbox in the last 24 hours: campaign emails, warm-up emails (new ones and replies)
+ * and test emails. Hostinger and Gmail count the same rolling window, and the daily limit covers all of them.
  *
  * The outer mailbox is written as "senders"."id" on purpose: Drizzle leaves column names
  * unqualified in single-table selects, and inside this subquery a bare "id" would mean
@@ -11,5 +11,11 @@ import { messages, testSends } from "@/lib/db/schema";
  */
 export const sentLast24h = sql<number>`(
   (select count(*) from ${messages} m where m.sender_id = "senders"."id" and m.sent_at > now() - interval '24 hours')
+  + (select count(*) from ${warmupMessages} w where w.sender_id = "senders"."id" and w.sent_at > now() - interval '24 hours')
   + (select count(*) from ${testSends} t where t.sender_id = "senders"."id" and t.sent_at > now() - interval '24 hours')
+)`.mapWith(Number);
+
+/** Warm-up emails (new ones and replies) a mailbox sent in the last 24 hours; part of sentLast24h. */
+export const warmupSentLast24h = sql<number>`(
+  select count(*) from ${warmupMessages} w where w.sender_id = "senders"."id" and w.sent_at > now() - interval '24 hours'
 )`.mapWith(Number);

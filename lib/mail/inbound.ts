@@ -9,8 +9,9 @@ import { messages, recipients, replies, senders, suppressions, type AttachmentMe
 import { extractReplyText, isAutoReply, isBounce, isOptOutReply, messageIdList, parseBounce, senderAddress } from "@/lib/mail/inbound-parse";
 import { sendPushToUser, snippet } from "@/lib/push";
 import { storageDir } from "@/lib/storage";
+import { isOwnWarmupAddress, matchWarmup, matchWarmupBounce, quotesWarmup } from "@/lib/warmup/inbound";
 
-export type InboundResult = "reply" | "auto_reply" | "bounce" | "unsubscribe" | "ignored" | "duplicate";
+export type InboundResult = "reply" | "auto_reply" | "bounce" | "unsubscribe" | "ignored" | "duplicate" | "warmup";
 
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 const ADDRESS_MATCH_DAYS = 30;
@@ -48,13 +49,18 @@ async function findLatestMessageTo(userId: string, email: string, senderId: stri
 
 async function handleBounce(sender: Sender, parsed: ParsedMail, raw: string): Promise<InboundResult> {
   const info = parseBounce(raw, parsed.messageId);
+  const reason = [info.status, info.diagnostic].filter(Boolean).join(" ") || "Bounced";
+  // A warm-up email that couldn't be delivered: recorded on the warm-up email, never on the do-not-send list.
+  if (await matchWarmupBounce(sender, info.originalMessageIds, reason)) return "warmup";
   const quoted = await findMessageByHeaders(info.originalMessageIds);
   if (quoted && quoted.userId !== sender.userId) return "ignored"; // another account's email (both read the same inbox)
   let target = quoted;
-  if (!target && info.recipient) target = await findLatestMessageTo(sender.userId, info.recipient, sender.id);
+  // A bounce about one of the account's own warm-up mailboxes never puts it on the do-not-send list.
+  if (!target && info.recipient && !(await isOwnWarmupAddress(sender.userId, info.recipient))) {
+    target = await findLatestMessageTo(sender.userId, info.recipient, sender.id);
+  }
   if (!target) return "ignored";
 
-  const reason = [info.status, info.diagnostic].filter(Boolean).join(" ") || "Bounced";
   if (!info.hard) {
     await db.update(messages).set({ error: `Soft bounce: ${reason}`, updatedAt: new Date() }).where(eq(messages.id, target.id));
     return "bounce";
@@ -104,20 +110,40 @@ async function saveAttachments(replyId: string, parsed: ParsedMail): Promise<Att
   return saved;
 }
 
-/** Read one incoming email from a sender's inbox: record bounces and replies, ignore everything else. */
-export async function processInbound(sender: Sender, source: Buffer, folder: string, uid: number): Promise<InboundResult> {
+/**
+ * Read one incoming email from a sender's inbox: record bounces and replies, ignore everything else.
+ * Warm-up emails are handled apart (lib/warmup/inbound.ts) and never become replies, notifications or
+ * do-not-send entries; `onWarmup` gets the ones for this mailbox so the inbox check can mark them read.
+ */
+export async function processInbound(
+  sender: Sender,
+  source: Buffer,
+  folder: string,
+  uid: number,
+  onWarmup?: (warmupId: string) => void,
+): Promise<InboundResult> {
   const parsed = await simpleParser(source);
+  const warm = await matchWarmup(sender, parsed.messageId, folder);
+  if (warm) {
+    if (warm.kind !== "warmup") return "ignored";
+    onWarmup?.(warm.id);
+    return "warmup";
+  }
   const from = senderAddress(parsed);
   if (!from || from.email === sender.email.toLowerCase()) return "ignored";
 
   if (isBounce(parsed)) return handleBounce(sender, parsed, source.toString("utf8"));
   if (/^\s*unsubscribe\s*$/i.test(parsed.subject ?? "")) return handleUnsubscribeEmail(sender.userId, from.email);
 
-  const quoted = await findMessageByHeaders(messageIdList(parsed));
+  const quotedIds = messageIdList(parsed);
+  const quoted = await findMessageByHeaders(quotedIds);
   // It answers another account's email (both accounts read the same inbox), so it isn't this account's reply.
   if (quoted && quoted.userId !== sender.userId) return "ignored";
+  // An out-of-office or other answer to a warm-up email: not a campaign reply.
+  if (!quoted && (await quotesWarmup(quotedIds))) return "ignored";
   let target = quoted;
-  if (!target) target = await findLatestMessageTo(sender.userId, from.email, sender.id);
+  // Matching by address alone skips the account's own warm-up mailboxes: their mail is warm-up, not a reply.
+  if (!target && !(await isOwnWarmupAddress(sender.userId, from.email))) target = await findLatestMessageTo(sender.userId, from.email, sender.id);
   if (!target) return "ignored"; // not about anything we sent, e.g. normal support mail
 
   const auto = isAutoReply(parsed);

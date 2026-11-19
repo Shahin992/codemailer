@@ -81,10 +81,14 @@ async function resolveSenders(userId: string, input: CampaignInput) {
   const conditions = [];
   if (input.senderIds?.length) conditions.push(inArray(senders.id, input.senderIds));
   if (input.senderEmails?.length) conditions.push(inArray(senders.email, input.senderEmails.map((e) => e.trim().toLowerCase())));
-  const rows = conditions.length
+  const found = conditions.length
     ? await db.select().from(senders).where(and(eq(senders.userId, userId), sql`(${sql.join(conditions, sql` or `)})`))
     : [];
-  if (!rows.length) throw new CampaignError("Choose at least one mailbox to send from");
+  // Warm-up partner mailboxes (e.g. personal Gmail accounts) only answer warm-up emails; they never send campaigns.
+  const rows = found.filter((s) => s.warmupRole !== "partner");
+  if (!rows.length) {
+    throw new CampaignError(found.length ? "Warm-up partner mailboxes can't send campaigns. Choose a business mailbox." : "Choose at least one mailbox to send from");
+  }
   return rows;
 }
 
