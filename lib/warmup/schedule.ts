@@ -35,9 +35,21 @@ export const MIN_SPACING_MS = 2 * 60_000;
 
 export type WarmupRamp = { warmupStart: number; warmupIncrease: number; warmupMax: number };
 
-/** Day 1 is the day warm-up was turned on, counted on the account's clock. */
-export function warmupDay(startedAt: Date, now: Date, timeZone: string): number {
-  return Math.max(daysBetween(localDate(startedAt, timeZone), localDate(now, timeZone)) + 1, 1);
+/**
+ * The ramp's day: day 1 is the day warm-up was turned on, counted on the account's clock. Only days warm-up can
+ * send on count, so with "weekdays only" a weekend doesn't move it ahead (Friday day 2, Monday day 3).
+ */
+export function warmupDay(startedAt: Date, now: Date, timeZone: string, weekdaysOnly = false): number {
+  const first = localDate(startedAt, timeZone);
+  const span = daysBetween(first, localDate(now, timeZone));
+  if (!weekdaysOnly) return Math.max(span + 1, 1);
+  let count = 0;
+  const start = Date.parse(`${first}T12:00:00Z`);
+  for (let i = 0; i <= span && i < 1000; i++) {
+    const weekday = new Date(start + i * 86_400_000).getUTCDay();
+    if (weekday !== 0 && weekday !== 6) count++;
+  }
+  return Math.max(count, 1);
 }
 
 /** New warm-up emails a mailbox sends on a given day: start, then `increase` more each day, up to the maximum. */

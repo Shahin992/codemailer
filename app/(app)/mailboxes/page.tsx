@@ -80,7 +80,7 @@ export default async function MailboxesPage() {
                 ) : (
                   sender.warmupEnabled && (
                     <Badge tone="primary">
-                      Warm-up day {sender.warmupStartedAt ? warmupDay(sender.warmupStartedAt, new Date(), settings.timezone) : 1}
+                      Warm-up day {sender.warmupStartedAt ? warmupDay(sender.warmupStartedAt, new Date(), settings.timezone, settings.weekdaysOnly) : 1}
                       {warmup.get(sender.id)?.sentToday ? ` · ${warmup.get(sender.id)!.sentToday} today` : ""}
                     </Badge>
                   )

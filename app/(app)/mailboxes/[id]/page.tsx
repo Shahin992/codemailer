@@ -51,7 +51,7 @@ export default async function MailboxPage({
   const { sender, sent24h, warmup24h } = row;
   const settings = await getSettings(me.id);
   const [warmup, dns, replyTargets] = await Promise.all([
-    warmupDetail(sender, settings.timezone),
+    warmupDetail(sender, settings.timezone, settings.weekdaysOnly),
     checkDomainDns(domainOf(sender.email)),
     db
       .select({ id: senders.id, email: senders.email })
