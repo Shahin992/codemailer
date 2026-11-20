@@ -10,7 +10,7 @@ import { db } from "@/lib/db";
 import { messages, PROVIDERS, SECURITY, senders, testSends, type ImapState, type Sender } from "@/lib/db/schema";
 import { appendToSent, buildRawEmail, configFromSender, sendRawEmail, testConnection, type MailboxConfig } from "@/lib/mail/connection";
 import { describeMailError } from "@/lib/mail/errors";
-import { PROVIDER_PRESETS, securityForPort } from "@/lib/providers";
+import { PROVIDER_PRESETS, UNSUPPORTED_NOTE, securityForPort } from "@/lib/providers";
 import { isValidEmail, normalizeEmail } from "@/lib/recipients-parse";
 import { APP_NAME } from "@/lib/brand";
 
@@ -113,6 +113,15 @@ export async function saveMailbox(_prev: MailboxFormState, formData: FormData): 
   const imapSecurity = isCustom && readInbox ? (input.imapSecurity ?? securityForPort(imapPort ?? 993, "imap")) : preset.imapSecurity;
   const imapUser = isCustom && readInbox && input.imapUser && input.imapUser !== (smtpUser ?? input.email) ? input.imapUser : null;
 
+  const domain = input.email.split("@")[1]?.toLowerCase() ?? "";
+  if (/^(outlook|hotmail|live|msn)\.[a-z.]+$/.test(domain)) return { error: UNSUPPORTED_NOTE, fieldErrors: { email: "Not supported yet" } };
+  if (!isCustom && /^(yahoo|ymail|rocketmail)\.[a-z.]+$/.test(domain)) {
+    return {
+      error: "This is a Yahoo address. Choose “Any SMTP server”, pick “Yahoo Mail” under Fill in for, and use a Yahoo app password.",
+      fieldErrors: { email: "Choose Any SMTP server" },
+    };
+  }
+
   if (!smtpHost) return { error: "Enter the SMTP server.", fieldErrors: { smtpHost: "Required" } };
   if (readInbox && !imapHost) return { error: "Enter the IMAP server, or turn off reading replies.", fieldErrors: { imapHost: "Required" } };
 
@@ -125,7 +134,11 @@ export async function saveMailbox(_prev: MailboxFormState, formData: FormData): 
     replyToSenderId = target.id;
   }
 
-  const password = input.password ?? (existing ? configFromSender(existing).password : undefined);
+  // App passwords (Gmail, Yahoo, iCloud) are shown in groups like "abcd efgh ijkl mnop" and never contain real
+  // spaces, so a pasted one is used without them. Other hosts' passwords are kept exactly as typed.
+  const appPasswordHost = /(^|\.)(gmail|googlemail|yahoo|me|icloud)\.com$/i.test(smtpHost);
+  const typed = input.password && appPasswordHost ? input.password.replace(/\s+/g, "") : input.password;
+  const password = typed || (existing ? configFromSender(existing).password : undefined);
   if (!password) return { error: "Enter the password.", fieldErrors: { password: "Required" } };
 
   const cfg: MailboxConfig = {

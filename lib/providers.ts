@@ -126,7 +126,7 @@ export const SMTP_TEMPLATES: SmtpTemplate[] = [
     smtpPort: 465,
     smtpSecurity: "ssl",
     imap: { host: "imap.mail.yahoo.com", port: 993, security: "ssl" },
-    note: "Needs an app password from Yahoo Account Security.",
+    note: "Your normal Yahoo password won't work. In Yahoo: Account info → Account security → Generate app password (under External connections), name it ColdMailer, and paste the 16 letters here; spaces don't matter. Too many failed tries makes Yahoo block logins for about an hour.",
   },
   {
     label: "iCloud Mail",
