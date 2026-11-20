@@ -21,6 +21,8 @@ async function ownMailbox(id: string) {
 function refresh(id: string) {
   revalidatePath("/mailboxes");
   revalidatePath(`/mailboxes/${id}`);
+  revalidatePath("/warmup");
+  revalidatePath(`/warmup/${id}`);
 }
 
 export async function setWarmup(id: string, on: boolean, _prev: WarmupFormState): Promise<WarmupFormState> {

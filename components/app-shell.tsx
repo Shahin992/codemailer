@@ -1,6 +1,6 @@
 "use client";
 
-import { Ban, Ellipsis, Inbox, LayoutDashboard, LogOut, Mail, Send, Settings, Users, X } from "lucide-react";
+import { Ban, Ellipsis, Flame, Inbox, LayoutDashboard, LogOut, Mail, Send, Settings, Users, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Suspense, useEffect, useState, type ReactNode } from "react";
@@ -82,6 +82,7 @@ export function AppShell({
     { href: "/campaigns", label: "Campaigns", icon: Send },
     { href: "/replies", label: "Replies", icon: Inbox, badge: unreadReplies },
     { href: "/mailboxes", label: "Mailboxes", icon: Mail },
+    { href: "/warmup", label: "Warm-up", icon: Flame },
   ];
   const extra: NavItem[] = [
     { href: "/recipients", label: "Recipients", icon: Users },
@@ -160,37 +161,37 @@ export function AppShell({
 
       {/* Bottom tab bar: phones */}
       <nav className="safe-bottom fixed inset-x-0 bottom-0 z-40 border-t bg-card/90 shadow-[0_-4px_16px_-8px_rgb(15_23_42/0.12)] backdrop-blur-md md:hidden" aria-label="Main">
-        <div className="grid grid-cols-5 px-1 pt-1.5 pb-1">
+        <div className="grid grid-cols-6 px-0.5 pt-1.5 pb-1">
           {main.map((item) => {
             const active = isActive(pathname, item.href);
             return (
               <Link
                 key={item.href}
                 href={item.href}
-                className="relative flex flex-col items-center gap-0.5 py-1 text-[11px]"
+                className="relative flex min-w-0 flex-col items-center gap-0.5 py-1 text-[10.5px] tracking-tight"
                 aria-current={active ? "page" : undefined}
               >
                 <span
                   className={cn(
-                    "grid h-8 w-14 place-items-center rounded-full transition-colors",
+                    "grid h-8 w-12 place-items-center rounded-full transition-colors",
                     active ? "bg-primary-soft text-primary" : "text-muted",
                   )}
                 >
                   <NavIcon icon={item.icon} className="size-5" />
                 </span>
-                <span className={cn(active ? "font-semibold text-primary" : "font-medium text-muted")}>{item.label}</span>
-                <CountBadge value={item.badge} className="absolute top-0 left-1/2 ml-2.5 ring-2 ring-card" />
+                <span className={cn("max-w-full truncate", active ? "font-semibold text-primary" : "font-medium text-muted")}>{item.label}</span>
+                <CountBadge value={item.badge} className="absolute top-0 left-1/2 ml-2 ring-2 ring-card" />
               </Link>
             );
           })}
           <button
             type="button"
             onClick={() => setMoreOpen(true)}
-            className="flex flex-col items-center gap-0.5 py-1 text-[11px]"
+            className="flex min-w-0 flex-col items-center gap-0.5 py-1 text-[10.5px] tracking-tight"
             aria-haspopup="dialog"
             aria-expanded={moreOpen}
           >
-            <span className={cn("grid h-8 w-14 place-items-center rounded-full", extraActive ? "bg-primary-soft text-primary" : "text-muted")}>
+            <span className={cn("grid h-8 w-12 place-items-center rounded-full", extraActive ? "bg-primary-soft text-primary" : "text-muted")}>
               <Ellipsis className="size-5" aria-hidden />
             </span>
             <span className={cn(extraActive ? "font-semibold text-primary" : "font-medium text-muted")}>More</span>

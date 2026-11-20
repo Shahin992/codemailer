@@ -5,7 +5,7 @@ import { Paperclip } from "lucide-react";
 import { markAllRepliesRead } from "@/app/actions/replies";
 import { SubmitButton, Time } from "@/components/client";
 import { FilterChips, ListSearch, Pagination } from "@/components/pagination";
-import { Badge, Card, EmptyState, PageHeader, cn } from "@/components/ui";
+import { Avatar, Badge, Card, EmptyState, PageHeader, cn } from "@/components/ui";
 import { requireSession } from "@/lib/auth";
 import { clampPage, pageInfo, readPage } from "@/lib/pagination";
 import { db } from "@/lib/db";
@@ -73,11 +73,11 @@ export default async function RepliesPage({ searchParams }: { searchParams: Prom
     <>
       <PageHeader
         title="Replies"
-        description="Answers to your emails, matched to the campaign and mailbox. Checked every few minutes."
+        description={unread.n > 0 ? `${unread.n} unread · answers to your campaign emails` : "Answers to your campaign emails, newest first."}
         action={
           unread.n > 0 ? (
             <form action={markAllRepliesRead}>
-              <SubmitButton variant="secondary" size="sm">
+              <SubmitButton variant="secondary" size="sm" pendingText="Marking…">
                 Mark all read
               </SubmitButton>
             </form>
@@ -109,33 +109,47 @@ export default async function RepliesPage({ searchParams }: { searchParams: Prom
           />
         ) : (
           <ul className="divide-y">
-            {rows.map((r) => (
-              <li key={r.id}>
-                <Link href={`/replies/${r.id}`} className="flex gap-3 px-4 py-3.5 transition-colors hover:bg-neutral-soft md:px-5">
-                  <span className={cn("mt-1.5 size-2 shrink-0 rounded-full", r.readAt ? "bg-transparent" : "bg-primary")} aria-label={r.readAt ? undefined : "Unread"} />
-                  <span className="min-w-0 flex-1">
-                    <span className="flex items-baseline justify-between gap-2">
-                      <span className={cn("truncate text-sm", !r.readAt && "font-semibold")}>{r.fromName || r.fromEmail}</span>
-                      <span className="shrink-0 text-xs text-muted">
-                        <Time value={r.receivedAt} mode="relative" />
+            {rows.map((r) => {
+              const unreadRow = !r.readAt;
+              return (
+                <li key={r.id}>
+                  <Link
+                    href={`/replies/${r.id}`}
+                    className={cn("flex gap-3 px-4 py-3.5 transition-colors hover:bg-neutral-soft md:px-5", unreadRow && "bg-primary-soft/30")}
+                  >
+                    <span className="relative mt-0.5">
+                      <Avatar name={r.fromName} email={r.fromEmail} />
+                      {unreadRow && <span className="absolute -top-0.5 -left-0.5 size-3 rounded-full bg-primary ring-2 ring-card" aria-label="Unread" />}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-baseline justify-between gap-3">
+                        <span className={cn("truncate text-[15px]", unreadRow ? "font-bold" : "font-medium")}>{r.fromName || r.fromEmail}</span>
+                        <span className={cn("shrink-0 text-xs", unreadRow ? "font-semibold text-primary" : "text-muted")}>
+                          <Time value={r.receivedAt} mode="relative" />
+                        </span>
+                      </span>
+                      <span className={cn("block truncate text-sm", unreadRow ? "font-semibold" : "")}>{r.subject || "(no subject)"}</span>
+                      <span className="mt-0.5 line-clamp-2 text-[13px] leading-snug text-muted">{snippet(r.replyText, 180)}</span>
+                      <span className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-muted">
+                        {r.campaign && <Badge tone="primary">{r.campaign}</Badge>}
+                        {!r.isAutoReply && r.threadSize > 1 && (
+                          <Badge>
+                            reply {r.threadPosition} of {r.threadSize}
+                          </Badge>
+                        )}
+                        {r.isAutoReply && <Badge tone="warning">auto-reply</Badge>}
+                        {r.attachments.length > 0 && (
+                          <span className="inline-flex items-center gap-0.5">
+                            <Paperclip className="size-3.5" aria-label="Has attachments" /> {r.attachments.length}
+                          </span>
+                        )}
+                        <span className="min-w-0 truncate">via {r.mailbox}</span>
                       </span>
                     </span>
-                    <span className="block truncate text-sm">{r.subject || "(no subject)"}</span>
-                    <span className="block truncate text-sm text-muted">{snippet(r.replyText, 160)}</span>
-                    <span className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted">
-                      <span className="truncate">to {r.mailbox}</span>
-                      {r.campaign && <Badge>{r.campaign}</Badge>}
-                      {!r.isAutoReply && r.threadSize > 1 && (
-                        <Badge tone="primary">
-                          reply {r.threadPosition} of {r.threadSize}
-                        </Badge>
-                      )}
-                      {r.attachments.length > 0 && <Paperclip className="size-3.5" aria-label="Has attachments" />}
-                    </span>
-                  </span>
-                </Link>
-              </li>
-            ))}
+                  </Link>
+                </li>
+              );
+            })}
           </ul>
         )}
         <Pagination info={info} path="/replies" search={search} noun="replies" />

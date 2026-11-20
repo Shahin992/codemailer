@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { and, asc, eq, ne } from "drizzle-orm";
-import { ArrowLeft, Check, X } from "lucide-react";
+import { ArrowLeft, Check, ChevronRight, Flame, X } from "lucide-react";
 import { Time } from "@/components/client";
 import { Alert, Badge, Card, CardHeader, DetailList, Progress, SectionTabs, StatusBadge } from "@/components/ui";
 import { db } from "@/lib/db";
@@ -14,9 +14,8 @@ import { PROVIDER_PRESETS, SECURITY_LABELS } from "@/lib/providers";
 import { requireSession } from "@/lib/auth";
 import { getSettings } from "@/lib/settings";
 import { MailboxForm } from "../mailbox-form";
-import { warmupDetail } from "@/lib/warmup/status";
+import { warmupDay } from "@/lib/warmup/schedule";
 import { MailboxActions } from "./mailbox-actions";
-import { WarmupCard } from "./warmup-card";
 import { FlashToast } from "@/components/toast";
 
 export const metadata: Metadata = { title: "Mailbox" };
@@ -35,7 +34,7 @@ function DnsRow({ ok, label, help }: { ok: boolean; label: string; help: string 
   );
 }
 
-const TABS = ["overview", "warmup", "settings"] as const;
+const TABS = ["overview", "settings"] as const;
 type Tab = (typeof TABS)[number];
 
 export default async function MailboxPage({
@@ -54,12 +53,13 @@ export default async function MailboxPage({
     .from(senders)
     .where(and(eq(senders.id, id), eq(senders.userId, me.id)));
   if (!row) notFound();
+  // Warm-up has its own menu now; the old tab link opens this mailbox there.
+  if (query.tab === "warmup") redirect(`/warmup/${id}`);
   const { sender, sent24h, warmup24h } = row;
   // One section at a time on the page; after saving the form the page opens on Overview with the result.
   const tab: Tab = TABS.includes(query.tab as Tab) ? (query.tab as Tab) : "overview";
   const settings = await getSettings(me.id);
-  const [warmup, dns, replyTargets] = await Promise.all([
-    tab === "warmup" ? warmupDetail(sender, settings.timezone, settings.weekdaysOnly) : null,
+  const [dns, replyTargets] = await Promise.all([
     tab === "overview" ? checkDomainDns(domainOf(sender.email)) : null,
     db
       .select({ id: senders.id, email: senders.email })
@@ -107,7 +107,6 @@ export default async function MailboxPage({
         active={tab}
         tabs={[
           { key: "overview", label: "Overview", href: base },
-          { key: "warmup", label: "Warm-up", href: `${base}?tab=warmup` },
           { key: "settings", label: "Settings", href: `${base}?tab=settings` },
         ]}
       />
@@ -156,6 +155,26 @@ export default async function MailboxPage({
             </div>
           </Card>
 
+          <Link
+            href={`/warmup/${sender.id}`}
+            className="flex items-center gap-3 rounded-2xl border bg-card p-4 shadow-card transition-colors hover:bg-neutral-soft md:px-5"
+          >
+            <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary-soft text-primary" aria-hidden>
+              <Flame className="size-5" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block font-semibold">Warm-up</span>
+              <span className="block truncate text-[13px] text-muted">
+                {!sender.warmupEnabled
+                  ? "Off · open to turn it on"
+                  : sender.warmupRole === "partner"
+                    ? "On as a partner · score, conversations and settings"
+                    : `Day ${sender.warmupStartedAt ? warmupDay(sender.warmupStartedAt, new Date(), settings.timezone, settings.weekdaysOnly) : 1} · score, conversations and settings`}
+              </span>
+            </span>
+            <ChevronRight className="size-4 shrink-0 text-muted" aria-hidden />
+          </Link>
+
           {dns && (
             <Card>
               <CardHeader title={`Domain check: ${dns.domain}`} description="These records decide whether your mail reaches the inbox." />
@@ -169,8 +188,6 @@ export default async function MailboxPage({
           )}
         </>
       )}
-
-      {tab === "warmup" && warmup && <WarmupCard sender={sender} detail={warmup} settings={settings} />}
 
       {tab === "settings" && (
         <MailboxForm
