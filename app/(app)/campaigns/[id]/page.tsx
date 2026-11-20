@@ -6,7 +6,7 @@ import { ArrowLeft, Ban, MailPlus, Pause, Play, RotateCcw } from "lucide-react";
 import { cancelCampaign, discardDraftCampaign, retryFailed, setCampaignStatus } from "@/app/actions/campaigns";
 import { SubmitButton, Time } from "@/components/client";
 import { FilterChips, ListSearch, Pagination } from "@/components/pagination";
-import { Alert, ButtonLink, Card, CardHeader, Progress, Stat, StatusBadge } from "@/components/ui";
+import { Alert, Avatar, ButtonLink, Card, CardHeader, DetailList, Progress, StatusBadge, cn } from "@/components/ui";
 import { requireSession } from "@/lib/auth";
 import { campaignCounts, EMPTY_COUNTS } from "@/lib/campaigns";
 import { db } from "@/lib/db";
@@ -115,55 +115,67 @@ export default async function CampaignPage({
   ].filter((f) => !f.value || f.count > 0 || f.value === filter);
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <div>
-        <Link href="/campaigns" className="mb-3 inline-flex items-center gap-1 text-sm text-muted hover:text-fg">
+        <Link href="/campaigns" className="mb-3 inline-flex items-center gap-1 text-sm font-medium text-muted hover:text-fg">
           <ArrowLeft className="size-4" /> Campaigns
         </Link>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="truncate text-xl font-semibold md:text-2xl">{campaign.name}</h1>
-              <StatusBadge status={campaign.status} />
-            </div>
-            <p className="mt-1 truncate text-sm text-muted">{campaign.subject}</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="min-w-0 text-[22px] leading-tight font-bold tracking-tight break-words md:text-[26px]">{campaign.name}</h1>
+          <StatusBadge status={campaign.status} />
+        </div>
+        <p className="mt-1 text-[13px] break-words text-muted md:text-sm">
+          {campaign.followUpOf ? "Follow-up · " : ""}
+          {campaign.subject}
+        </p>
+        {/* Actions: an even grid on a phone, a row on wider screens. */}
+        {(canPause || canResume || counts.failed > 0 || counts.sent > 0 || open) && (
+          <div className="mt-4 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
             {canPause && (
-              <form action={setCampaignStatus.bind(null, id, "paused")}>
-                <SubmitButton variant="secondary" size="sm">
+              <form action={setCampaignStatus.bind(null, id, "paused")} className="contents">
+                <SubmitButton variant="secondary" size="sm" className="w-full sm:w-auto" pendingText="Pausing…">
                   <Pause className="size-4" /> Pause
                 </SubmitButton>
               </form>
             )}
             {canResume && (
-              <form action={setCampaignStatus.bind(null, id, "active")}>
-                <SubmitButton size="sm">
+              <form action={setCampaignStatus.bind(null, id, "active")} className="contents">
+                <SubmitButton size="sm" className="w-full sm:w-auto" pendingText="Resuming…">
                   <Play className="size-4" /> Resume
                 </SubmitButton>
               </form>
             )}
             {counts.failed > 0 && (
-              <form action={retryFailed.bind(null, id)}>
-                <SubmitButton variant="secondary" size="sm" confirm="Put failed emails back in the queue? Check the mailbox's Sent folder first if they were interrupted.">
+              <form action={retryFailed.bind(null, id)} className="contents">
+                <SubmitButton
+                  variant="secondary"
+                  size="sm"
+                  className="w-full sm:w-auto"
+                  confirm="Put failed emails back in the queue? Check the mailbox's Sent folder first if they were interrupted."
+                >
                   <RotateCcw className="size-4" /> Retry failed
                 </SubmitButton>
               </form>
             )}
             {counts.sent > 0 && (
-              <ButtonLink href={`/campaigns/new?followUp=${id}`} variant="secondary" size="sm">
+              <ButtonLink href={`/campaigns/new?followUp=${id}`} variant="secondary" size="sm" className="w-full sm:w-auto">
                 <MailPlus className="size-4" /> Follow-up
               </ButtonLink>
             )}
             {open && (
-              <form action={cancelCampaign.bind(null, id)}>
-                <SubmitButton variant="danger" size="sm" confirm="Cancel this campaign? Emails not yet sent will not go out.">
+              <form action={cancelCampaign.bind(null, id)} className="contents">
+                <SubmitButton
+                  variant="danger"
+                  size="sm"
+                  className="w-full sm:w-auto"
+                  confirm="Cancel this campaign? Emails not yet sent will not go out."
+                >
                   <Ban className="size-4" /> Cancel
                 </SubmitButton>
               </form>
             )}
           </div>
-        </div>
+        )}
       </div>
 
       {campaign.status === "draft" && (
@@ -197,54 +209,78 @@ export default async function CampaignPage({
         <Alert tone="warning">All of this campaign's mailboxes are paused, so nothing is sending. Resume one on the Mailboxes page.</Alert>
       )}
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Stat label="Sent" value={`${counts.sent.toLocaleString()}/${counts.total.toLocaleString()}`} hint={`${counts.queued.toLocaleString()} waiting`} />
-        <Stat label="Replied" value={counts.replied} hint={counts.sent ? `${Math.round((counts.replied / counts.sent) * 100)}% of sent` : undefined} />
-        <Stat label="Bounced" value={counts.bounced} hint={counts.failed ? `${counts.failed} failed` : undefined} />
-        <Stat
-          label={campaign.trackOpens || campaign.trackClicks ? "Opened / clicked" : "Tracking"}
-          value={campaign.trackOpens || campaign.trackClicks ? `${counts.opened} / ${counts.clicked}` : "Off"}
-        />
-      </div>
+      {/* Results, like a campaign report: how far it got, then reply and bounce rates. */}
+      <Card className="overflow-hidden">
+        <div className="grid grid-cols-2 gap-px bg-border md:grid-cols-4">
+          <div className="bg-card px-4 py-3.5">
+            <p className="text-[13px] font-medium text-muted">Sent</p>
+            <p className="mt-1 text-[22px] leading-none font-bold tabular-nums">
+              {counts.sent.toLocaleString()}
+              <span className="text-sm font-semibold text-muted"> / {counts.total.toLocaleString()}</span>
+            </p>
+            <div className="mt-2.5">
+              <Progress value={processed} max={counts.total} tone={campaign.status === "done" ? "success" : "primary"} />
+            </div>
+          </div>
+          <div className="bg-card px-4 py-3.5">
+            <p className="text-[13px] font-medium text-muted">Reply rate</p>
+            <p className={cn("mt-1 text-[22px] leading-none font-bold tabular-nums", counts.replied > 0 && "text-success")}>
+              {counts.sent ? `${Math.round((counts.replied / counts.sent) * 1000) / 10}%` : "—"}
+            </p>
+            <p className="mt-1.5 text-xs text-muted">{counts.replied.toLocaleString()} replied</p>
+          </div>
+          <div className="bg-card px-4 py-3.5">
+            <p className="text-[13px] font-medium text-muted">Bounce rate</p>
+            <p className={cn("mt-1 text-[22px] leading-none font-bold tabular-nums", counts.bounced > 0 && "text-danger")}>
+              {counts.sent ? `${Math.round((counts.bounced / counts.sent) * 1000) / 10}%` : "—"}
+            </p>
+            <p className="mt-1.5 text-xs text-muted">
+              {counts.bounced.toLocaleString()} bounced{counts.failed ? ` · ${counts.failed} failed` : ""}
+            </p>
+          </div>
+          <div className="bg-card px-4 py-3.5">
+            <p className="text-[13px] font-medium text-muted">{campaign.trackOpens || campaign.trackClicks ? "Opened / clicked" : "Waiting"}</p>
+            <p className="mt-1 text-[22px] leading-none font-bold tabular-nums">
+              {campaign.trackOpens || campaign.trackClicks ? `${counts.opened} / ${counts.clicked}` : counts.queued.toLocaleString()}
+            </p>
+            <p className="mt-1.5 text-xs text-muted">
+              {campaign.trackOpens || campaign.trackClicks ? `${counts.queued.toLocaleString()} waiting` : "tracking off"}
+            </p>
+          </div>
+        </div>
+      </Card>
 
-      <Card className="p-4">
-        <Progress value={processed} max={counts.total} tone={campaign.status === "done" ? "success" : "primary"} />
+      <Card>
+        <CardHeader title="Schedule" />
         {open && counts.queued > 0 && (
-          <p className="mt-3 text-sm">
+          <p className="border-b px-4 py-3 text-sm leading-snug md:px-5">
             {capacity > 0 ? (
               <>
                 {counts.queued.toLocaleString()} still waiting. At up to {capacity.toLocaleString()} a day from these mailboxes, about{" "}
                 <strong>
                   {daysLeft.toLocaleString()} more sending day{daysLeft === 1 ? "" : "s"}
                 </strong>
-                . Whatever is left after today's limits continues automatically tomorrow.
-                {nextEta && (
-                  <span className="mt-1 block text-muted">
-                    Next email <QueueEta estimate={nextEta} timeZone={tz} />
-                    {lastEta && lastEta !== nextEta && (
-                      <>
-                        {" "}· last one around <Time value={estimateTime(lastEta)} timeZone={tz} />
-                      </>
-                    )}
-                    .
-                  </span>
-                )}
+                . Whatever is left after today&apos;s limits continues automatically tomorrow.
               </>
             ) : (
               <>{counts.queued} still waiting. No active mailbox is sending for this campaign.</>
             )}
           </p>
         )}
-        <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted">
-          <span>
-            Window: {campaign.windowStart}–{campaign.windowEnd} {timezoneName(tz)} time ({tz})
-            {campaign.weekdaysOnly ? " · weekdays" : ""}
-          </span>
-          <span className="break-all">From: {mailboxes.map((m) => m.email).join(", ")}</span>
-          <span>
-            Created <Time value={campaign.createdAt} timeZone={tz} />
-          </span>
-        </div>
+        <DetailList
+          items={[
+            ...(open && counts.queued > 0 && capacity > 0 && nextEta
+              ? [{ label: "Next email", value: <QueueEta estimate={nextEta} timeZone={tz} /> }]
+              : []),
+            ...(open && lastEta && lastEta !== nextEta ? [{ label: "Last email, around", value: <Time value={estimateTime(lastEta)} timeZone={tz} /> }] : []),
+            {
+              label: "Send window",
+              value: `${campaign.windowStart}–${campaign.windowEnd} ${timezoneName(tz)}${campaign.weekdaysOnly ? " · weekdays" : ""}`,
+            },
+            { label: "From", value: mailboxes.map((m) => m.email).join(", ") || "—", wide: mailboxes.length > 1 },
+            { label: "Started", value: <Time value={campaign.createdAt} timeZone={tz} /> },
+          ]}
+        />
       </Card>
 
       <Card>
@@ -261,14 +297,16 @@ export default async function CampaignPage({
             {/* Phones: stacked rows */}
             <ul className="divide-y md:hidden">
               {rows.map((r) => (
-                <li key={r.id} className="space-y-1 px-4 py-3">
+                <li key={r.id} className="flex gap-3 px-4 py-3.5">
+                  <Avatar name={r.name} email={r.email} />
+                  <div className="min-w-0 flex-1 space-y-1">
                   <div className="flex items-center justify-between gap-2">
-                    <Link href={`/recipients?email=${encodeURIComponent(r.email)}`} className="min-w-0 truncate text-sm font-medium">
-                      {r.name ? `${r.name} · ` : ""}
-                      {r.email}
+                    <Link href={`/recipients?email=${encodeURIComponent(r.email)}`} className="min-w-0 truncate text-sm font-semibold">
+                      {r.name || r.email}
                     </Link>
                     <StatusBadge status={r.status} />
                   </div>
+                  {r.name && <p className="truncate text-xs text-muted">{r.email}</p>}
                   <p className="text-xs text-muted">
                     {r.sender ?? "mailbox chosen when it sends"} ·{" "}
                     {r.sentAt ? <Time value={r.sentAt} timeZone={tz} /> : r.status === "queued" ? <QueueEta estimate={etas.get(r.id)} timeZone={tz} /> : "not sent"}
@@ -276,11 +314,15 @@ export default async function CampaignPage({
                   </p>
                   {r.status === "queued" && open && <SendTimeEditor messageId={r.id} current={pickerTime(r)} isSet={Boolean(r.scheduledAt)} timeZone={tz} />}
                   {r.replyId && (
-                    <Link href={`/replies/${r.replyId}`} className="text-xs font-medium text-primary">
+                    <Link
+                      href={`/replies/${r.replyId}`}
+                      className="inline-flex items-center rounded-full bg-success-soft px-2.5 py-1 text-xs font-semibold text-success"
+                    >
                       {r.replyCount > 1 ? `Read ${r.replyCount} replies →` : "Read reply →"}
                     </Link>
                   )}
                   {r.error && r.status !== "sent" && <p className="text-xs break-words text-danger">{r.error}</p>}
+                  </div>
                 </li>
               ))}
             </ul>

@@ -1,4 +1,4 @@
-// Numbers for the warm-up status views (mailbox page and the Mailboxes list).
+// Numbers for the warm-up views (the Warm-up menu, its mailbox pages and the Mailboxes list).
 import { aliasedTable, and, desc, eq, inArray, ne, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { senders, warmupMessages, type Sender } from "@/lib/db/schema";
@@ -189,4 +189,155 @@ export async function warmupDetail(sender: Sender, timeZone: string, weekdaysOnl
       };
     }),
   };
+}
+
+/** Inbox placement as a 0–100 score: of its warm-up emails the other side found, the share that wasn't in spam. */
+export function inboxScore(found: number, spam: number): number | null {
+  return found > 0 ? Math.round(((found - spam) / found) * 100) : null;
+}
+
+export type WarmupOverview = {
+  /** Its own emails (new ones and replies). */
+  sentToday: number;
+  stillToSend: number;
+  sent7d: number;
+  found7d: number;
+  spam7d: number;
+  notFound7d: number;
+  failed7d: number;
+  /** Other mailboxes' emails that reached it. */
+  receivedToday: number;
+  received7d: number;
+  receivedSpam7d: number;
+  conversations7d: number;
+  lastAt: Date | null;
+};
+
+const EMPTY_OVERVIEW: WarmupOverview = {
+  sentToday: 0,
+  stillToSend: 0,
+  sent7d: 0,
+  found7d: 0,
+  spam7d: 0,
+  notFound7d: 0,
+  failed7d: 0,
+  receivedToday: 0,
+  received7d: 0,
+  receivedSpam7d: 0,
+  conversations7d: 0,
+  lastAt: null,
+};
+
+/** Per mailbox of an account, for the Warm-up list: today, the last 7 days and the last activity. */
+export async function warmupOverview(userId: string, timeZone: string): Promise<Map<string, WarmupOverview>> {
+  const { start, end } = todayRange(timeZone);
+  const startIso = sql`${start.toISOString()}::timestamptz`;
+  const endIso = sql`${end.toISOString()}::timestamptz`;
+  const w = warmupMessages;
+  const [out, inc] = await Promise.all([
+    db
+      .select({
+        id: w.senderId,
+        sentToday: n(sql`count(*) filter (where ${w.sentAt} >= ${startIso})`),
+        stillToSend: n(sql`count(*) filter (where ${w.status} = 'scheduled' and ${w.scheduledAt} < ${endIso})`),
+        sent7d: n(sql`count(*) filter (where ${w.sentAt} > ${WEEK})`),
+        found7d: n(sql`count(*) filter (where ${w.receivedAt} is not null and ${w.sentAt} > ${WEEK})`),
+        spam7d: n(sql`count(*) filter (where ${w.landedIn} = 'spam' and ${w.sentAt} > ${WEEK})`),
+        notFound7d: n(sql`count(*) filter (where ${w.status} = 'sent' and ${w.receivedAt} is null and ${w.sentAt} < now() - interval '1 hour' and ${w.sentAt} > ${WEEK})`),
+        failed7d: n(sql`count(*) filter (where ${w.status} = 'failed' and ${w.updatedAt} > ${WEEK})`),
+        threads: n(sql`count(distinct ${w.threadId}) filter (where ${w.sentAt} > ${WEEK})`),
+        lastAt: sql<string | null>`max(${w.sentAt})`,
+      })
+      .from(w)
+      .where(eq(w.userId, userId))
+      .groupBy(w.senderId),
+    db
+      .select({
+        id: w.toSenderId,
+        receivedToday: n(sql`count(*) filter (where ${w.receivedAt} >= ${startIso})`),
+        received7d: n(sql`count(*) filter (where ${w.receivedAt} > ${WEEK})`),
+        receivedSpam7d: n(sql`count(*) filter (where ${w.landedIn} = 'spam' and ${w.receivedAt} > ${WEEK})`),
+        threads: n(sql`count(distinct ${w.threadId}) filter (where ${w.receivedAt} > ${WEEK})`),
+        lastAt: sql<string | null>`max(${w.receivedAt})`,
+      })
+      .from(w)
+      .where(eq(w.userId, userId))
+      .groupBy(w.toSenderId),
+  ]);
+  const map = new Map<string, WarmupOverview>();
+  const get = (id: string) => map.get(id) ?? map.set(id, { ...EMPTY_OVERVIEW }).get(id)!;
+  const later = (a: Date | null, b: string | null) => (b && (!a || new Date(b) > a) ? new Date(b) : a);
+  for (const { id, threads, lastAt, ...rest } of out) {
+    const o = get(id);
+    Object.assign(o, rest);
+    o.conversations7d = Math.max(o.conversations7d, threads);
+    o.lastAt = later(o.lastAt, lastAt);
+  }
+  for (const { id, threads, lastAt, ...rest } of inc) {
+    const o = get(id);
+    Object.assign(o, rest);
+    // A conversation is counted on both sides; it's the same one, so take the larger count, not the sum.
+    o.conversations7d = Math.max(o.conversations7d, threads);
+    o.lastAt = later(o.lastAt, lastAt);
+  }
+  return map;
+}
+
+export function overviewFor(map: Map<string, WarmupOverview>, id: string): WarmupOverview {
+  return map.get(id) ?? EMPTY_OVERVIEW;
+}
+
+export type WarmupDay = {
+  /** "YYYY-MM-DD" on the account's clock. */
+  date: string;
+  /** Its own emails sent that day, by where the other mailbox found them. */
+  sent: number;
+  inbox: number;
+  spam: number;
+  notFound: number;
+  /** Other mailboxes' emails that reached it that day, and how many of those were in its spam. */
+  received: number;
+  receivedSpam: number;
+};
+
+/** One mailbox's warm-up, day by day, for the last `days` days (oldest first, today last). */
+export async function warmupDaily(senderId: string, timeZone: string, days = 14): Promise<WarmupDay[]> {
+  const today = localDate(new Date(), timeZone);
+  const dates = Array.from({ length: days }, (_, i) =>
+    new Date(Date.parse(`${today}T12:00:00Z`) - (days - 1 - i) * 86_400_000).toISOString().slice(0, 10),
+  );
+  const since = sql`now() - make_interval(days => ${days + 1}::int)`;
+  const [out, inc] = await Promise.all([
+    db.execute<{ day: string; sent: number; inbox: number; spam: number; not_found: number }>(sql`
+      select to_char(timezone(${timeZone}, sent_at), 'YYYY-MM-DD') as day,
+        count(*)::int as sent,
+        count(*) filter (where landed_in = 'inbox')::int as inbox,
+        count(*) filter (where landed_in = 'spam')::int as spam,
+        count(*) filter (where received_at is null)::int as not_found
+      from ${warmupMessages}
+      where sender_id = ${senderId} and sent_at is not null and sent_at > ${since}
+      group by 1`),
+    db.execute<{ day: string; received: number; received_spam: number }>(sql`
+      select to_char(timezone(${timeZone}, received_at), 'YYYY-MM-DD') as day,
+        count(*)::int as received,
+        count(*) filter (where landed_in = 'spam')::int as received_spam
+      from ${warmupMessages}
+      where to_sender_id = ${senderId} and received_at is not null and received_at > ${since}
+      group by 1`),
+  ]);
+  const outBy = new Map(out.rows.map((r) => [r.day, r]));
+  const incBy = new Map(inc.rows.map((r) => [r.day, r]));
+  return dates.map((date) => {
+    const o = outBy.get(date);
+    const i = incBy.get(date);
+    return {
+      date,
+      sent: Number(o?.sent ?? 0),
+      inbox: Number(o?.inbox ?? 0),
+      spam: Number(o?.spam ?? 0),
+      notFound: Number(o?.not_found ?? 0),
+      received: Number(i?.received ?? 0),
+      receivedSpam: Number(i?.received_spam ?? 0),
+    };
+  });
 }

@@ -302,3 +302,31 @@ export function DetailList({ items }: { items: { label: ReactNode; value: ReactN
     </dl>
   );
 }
+
+const AVATAR_TONES = [
+  "bg-primary-soft text-primary",
+  "bg-success-soft text-success",
+  "bg-info-soft text-info",
+  "bg-warning-soft text-warning",
+  "bg-neutral-soft text-fg",
+];
+
+/** A round badge with someone's initials, always the same colour for the same address. */
+export function Avatar({ name, email, size = "md" }: { name: string | null; email: string; size?: "sm" | "md" | "lg" }) {
+  const words = (name ?? "").trim().split(/\s+/).filter(Boolean);
+  const initials = words.length >= 2 ? words[0][0] + words[words.length - 1][0] : (words[0]?.[0] ?? email.charAt(0));
+  let hash = 0;
+  for (const ch of email.toLowerCase()) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "grid shrink-0 place-items-center rounded-full font-semibold uppercase select-none",
+        size === "sm" ? "size-7 text-[11px]" : size === "lg" ? "size-11 text-sm" : "size-9 text-xs",
+        AVATAR_TONES[hash % AVATAR_TONES.length],
+      )}
+    >
+      {initials}
+    </span>
+  );
+}

@@ -1,4 +1,4 @@
-// Warm-up conversations of one mailbox, for the history pages (/mailboxes/[id]/warmup).
+// Warm-up conversations of one mailbox, for the Warm-up menu (/warmup/[id]).
 // A conversation is a thread: the first email plus its reply and closing, always between the same two mailboxes.
 // Cancelled emails (dropped plans) are left out; they never went anywhere.
 import { aliasedTable, and, asc, desc, eq, ilike, ne, or, sql, type SQL } from "drizzle-orm";
@@ -18,6 +18,8 @@ export type ThreadSummary = {
   messages: number;
   lastAt: Date;
   latestText: string | null;
+  /** The latest sent email is this mailbox's own (shown as "You: …"), not the other mailbox's. */
+  latestFromHere: boolean;
   spam: boolean; // some email in it landed in spam
   stillInSpam: boolean; // …and wasn't moved out yet
   planned: boolean; // an email in it is still waiting to go out
@@ -67,6 +69,11 @@ export async function warmupThreads(
         where l.thread_id = ${w.threadId} and l.status = 'sent'
         order by l.sent_at desc limit 1
       )`,
+      latestFromHere: sql<boolean>`coalesce((
+        select l.sender_id = ${mailboxId} from ${warmupMessages} l
+        where l.thread_id = ${w.threadId} and l.status = 'sent'
+        order by l.sent_at desc limit 1
+      ), false)`,
       spam: sql<boolean>`bool_or(${w.landedIn} = 'spam')`,
       stillInSpam: sql<boolean>`bool_or(${w.landedIn} = 'spam' and ${w.rescuedAt} is null)`,
       planned: sql<boolean>`bool_or(${w.status} in ('scheduled', 'sending'))`,

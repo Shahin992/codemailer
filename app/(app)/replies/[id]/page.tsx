@@ -2,15 +2,16 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { and, asc, eq, inArray, isNull, or } from "drizzle-orm";
-import { ArrowLeft, Download, Paperclip } from "lucide-react";
+import { ArrowLeft, Download, History, MailOpen, Paperclip, Reply } from "lucide-react";
 import sanitizeHtml from "sanitize-html";
 import { markReplyUnread } from "@/app/actions/replies";
 import { SubmitButton, Time } from "@/components/client";
-import { Badge, Card, CardHeader, StatusBadge } from "@/components/ui";
+import { Avatar, Badge, Card, StatusBadge, buttonClass } from "@/components/ui";
 import { requireSession } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { emailPreviewDoc } from "@/lib/email-preview";
 import { campaigns, messages, recipients, replies, senders } from "@/lib/db/schema";
+import { buildVars, fillFields } from "@/lib/merge";
 
 export const metadata: Metadata = { title: "Reply" };
 
@@ -41,6 +42,11 @@ export default async function ReplyPage({ params }: { params: Promise<{ id: stri
       originalSubject: messages.subject,
       originalSentAt: messages.sentAt,
       messageStatus: messages.status,
+      // To show the email they answered, as it was written for them (display only).
+      messageVars: messages.vars,
+      recipientName: recipients.name,
+      campaignBody: campaigns.bodyText,
+      senderName: senders.displayName,
     })
     .from(replies)
     .innerJoin(senders, eq(senders.id, replies.senderId))
@@ -66,144 +72,153 @@ export default async function ReplyPage({ params }: { params: Promise<{ id: stri
   // All of them are shown in full on this page, so they all count as read.
   const unreadIds = conversation.filter((r) => !r.readAt).map((r) => r.id);
   if (unreadIds.length) await db.update(replies).set({ readAt: new Date() }).where(inArray(replies.id, unreadIds));
-  const thread = conversation.length > 1 ? conversation : []; // only shown when there is more than one
+  // The email they answered, filled in for this person the way it was sent (personal-style text, no footer).
+  const original =
+    row.campaignBody && row.recipientEmail
+      ? fillFields(row.campaignBody, buildVars({ email: row.recipientEmail, name: row.recipientName }, row.messageVars)).trim()
+      : null;
+  const position = conversation.findIndex((r) => r.id === reply.id);
+  const mailto = `mailto:${reply.fromEmail}?subject=${encodeURIComponent(`Re: ${reply.subject ?? ""}`)}`;
 
   return (
-    <div className="mx-auto max-w-3xl space-y-4">
-      <Link href="/replies" className="inline-flex items-center gap-1 text-sm text-muted hover:text-fg">
+    <div className="mx-auto max-w-3xl space-y-4 pb-20 md:pb-0">
+      <Link href="/replies" className="inline-flex items-center gap-1 text-sm font-medium text-muted hover:text-fg">
         <ArrowLeft className="size-4" /> Replies
       </Link>
 
-      <Card>
-        <div className="space-y-2 border-b px-4 py-4 md:px-5">
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="min-w-0 text-lg font-semibold break-words">{reply.subject || "(no subject)"}</h1>
-            {reply.isAutoReply && <Badge tone="warning">auto-reply</Badge>}
-          </div>
-          <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-            <p className="min-w-0 break-words">
-              <span className="font-medium">{reply.fromName || reply.fromEmail}</span>
-              {reply.fromName && <span className="text-muted"> &lt;{reply.fromEmail}&gt;</span>}
-            </p>
-            <span className="text-xs text-muted">
-              <Time value={reply.receivedAt} />
-            </span>
-          </div>
-          <p className="text-xs text-muted">to {row.mailbox}</p>
+      <div>
+        <h1 className="text-[22px] leading-tight font-bold tracking-tight break-words md:text-[26px]">{reply.subject || "(no subject)"}</h1>
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          {row.campaignId && (
+            <Link href={`/campaigns/${row.campaignId}`}>
+              <Badge tone="primary">{row.campaignName}</Badge>
+            </Link>
+          )}
+          {reply.isAutoReply && <Badge tone="warning">auto-reply</Badge>}
+          {conversation.length > 1 && (
+            <Badge>
+              reply {position + 1} of {conversation.length}
+            </Badge>
+          )}
+          {row.messageStatus && <StatusBadge status={row.messageStatus} />}
         </div>
+      </div>
 
-        <div className="px-4 py-4 md:px-5">
-          <p className="text-sm leading-relaxed break-words whitespace-pre-wrap">{reply.replyText || reply.bodyText || "(empty)"}</p>
-        </div>
-
-        {reply.attachments.length > 0 && (
-          <div className="border-t px-4 py-3 md:px-5">
-            <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted">
-              <Paperclip className="size-3.5" /> Attachments
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {reply.attachments.map((a, i) => (
-                <a
-                  key={i}
-                  href={`/api/attachments/${reply.id}/${i}`}
-                  className="inline-flex max-w-full items-center gap-2 rounded-lg border px-3 py-2 text-sm hover:bg-neutral-soft"
-                >
-                  <Download className="size-4 shrink-0" />
-                  <span className="truncate">{a.name}</span>
-                  <span className="shrink-0 text-xs text-muted">{formatSize(a.size)}</span>
-                </a>
-              ))}
+      <Card className="divide-y overflow-hidden">
+        {/* The email they answered: folded, like the earlier messages of a thread in a mail app. */}
+        {(original || row.originalSubject) && (
+          <details className="group">
+            <summary className="flex cursor-pointer list-none items-start gap-3 px-4 py-3.5 hover:bg-neutral-soft/60 md:px-5 [&::-webkit-details-marker]:hidden">
+              <Avatar name={row.senderName} email={row.mailbox} />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-baseline justify-between gap-3">
+                  <p className="min-w-0 truncate text-[15px] font-semibold">
+                    You <span className="text-xs font-medium text-muted">· {row.senderName || row.mailbox}</span>
+                  </p>
+                  <span className="shrink-0 text-xs text-muted">{row.originalSentAt ? <Time value={row.originalSentAt} /> : null}</span>
+                </div>
+                <p className="truncate text-[13px] text-muted group-open:hidden">{original ? original.replace(/\s+/g, " ") : row.originalSubject}</p>
+                <p className="hidden truncate text-[13px] text-muted group-open:block">to {reply.fromName || reply.fromEmail}</p>
+              </div>
+            </summary>
+            <div className="px-4 pb-5 md:pr-5 md:pl-[68px]">
+              {row.originalSubject && <p className="mb-2 text-sm font-semibold break-words">{row.originalSubject}</p>}
+              {original ? (
+                <p className="text-[15px] leading-relaxed break-words whitespace-pre-wrap text-fg/90">{original}</p>
+              ) : (
+                <p className="text-sm text-muted">The text of this email isn&apos;t available.</p>
+              )}
+              {row.campaignId && (
+                <Link href={`/campaigns/${row.campaignId}`} className="mt-3 inline-block text-sm font-medium text-primary hover:underline">
+                  Open the campaign →
+                </Link>
+              )}
             </div>
-          </div>
+          </details>
         )}
 
-        <div className="flex flex-wrap gap-2 border-t px-4 py-3 md:px-5">
-          <a href={`mailto:${reply.fromEmail}?subject=${encodeURIComponent(`Re: ${reply.subject ?? ""}`)}`} className="text-sm font-medium text-primary hover:underline">
-            Reply from your mail app
-          </a>
-          <span className="text-muted">·</span>
-          <Link href={`/recipients?email=${encodeURIComponent(reply.fromEmail)}`} className="text-sm font-medium text-primary hover:underline">
-            Full history
-          </Link>
-          <form action={markReplyUnread.bind(null, reply.id)} className="ml-auto">
-            <SubmitButton variant="ghost" size="sm">
-              Mark unread
-            </SubmitButton>
-          </form>
-        </div>
+        {/* Everything this person wrote back about the same email, oldest first; the one opened here unfolded. */}
+        {conversation.map((r, i) => {
+          const current = r.id === reply.id;
+          const text = r.replyText || r.bodyText || "(empty)";
+          return (
+            <details key={r.id} open={current} className="group">
+              <summary className="flex cursor-pointer list-none items-start gap-3 px-4 py-3.5 hover:bg-neutral-soft/60 md:px-5 [&::-webkit-details-marker]:hidden">
+                <Avatar name={reply.fromName} email={reply.fromEmail} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <p className="min-w-0 truncate text-[15px] font-semibold">
+                      {reply.fromName || reply.fromEmail}
+                      {conversation.length > 1 && <span className="ml-1.5 text-xs font-medium text-muted">· reply {i + 1}</span>}
+                    </p>
+                    <span className="shrink-0 text-xs text-muted">
+                      <Time value={r.receivedAt} />
+                    </span>
+                  </div>
+                  <p className="truncate text-[13px] text-muted group-open:hidden">{text.replace(/\s+/g, " ")}</p>
+                  <p className="hidden truncate text-[13px] text-muted group-open:block">
+                    {reply.fromName ? `${reply.fromEmail} · ` : ""}to {row.mailbox}
+                  </p>
+                </div>
+                {r.attachments.length > 0 && <Paperclip className="mt-1 size-4 shrink-0 text-muted" aria-label="Has attachments" />}
+              </summary>
+              <div className="px-4 pb-5 md:pr-5 md:pl-[68px]">
+                <p className="text-[15px] leading-relaxed break-words whitespace-pre-wrap">{text}</p>
+                {r.attachments.length > 0 && (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {r.attachments.map((a, j) => (
+                      <a
+                        key={j}
+                        href={`/api/attachments/${r.id}/${j}`}
+                        className="inline-flex max-w-full items-center gap-2 rounded-xl border bg-card px-3 py-2 text-sm shadow-card hover:bg-neutral-soft"
+                      >
+                        <Download className="size-4 shrink-0 text-muted" />
+                        <span className="truncate">{a.name}</span>
+                        <span className="shrink-0 text-xs text-muted">{formatSize(a.size)}</span>
+                      </a>
+                    ))}
+                  </div>
+                )}
+                {!current && (
+                  <Link href={`/replies/${r.id}`} className="mt-3 inline-block text-xs font-medium text-primary hover:underline">
+                    Open this reply on its own
+                  </Link>
+                )}
+              </div>
+            </details>
+          );
+        })}
       </Card>
 
-      {thread.length > 0 && (
-        <Card>
-          <CardHeader
-            title={`${thread.length} replies in this conversation`}
-            description={`Everything ${reply.fromName || reply.fromEmail} wrote back about this email, oldest first.`}
-          />
-          <ol className="divide-y">
-            {thread.map((r, i) => {
-              const current = r.id === reply.id;
-              const text = (
-                <>
-                  <span className="flex flex-wrap items-center gap-2 text-xs text-muted">
-                    <span className="font-medium text-fg">Reply {i + 1}</span>
-                    <Time value={r.receivedAt} />
-                    {current && <Badge tone="primary">Shown above</Badge>}
-                    {r.attachments.length > 0 && <Paperclip className="size-3.5" aria-label="Has attachments" />}
-                  </span>
-                  <span className="mt-1 block text-sm leading-relaxed break-words whitespace-pre-wrap">{r.replyText || r.bodyText || "(empty)"}</span>
-                </>
-              );
-              return (
-                <li key={r.id}>
-                  {current ? (
-                    <div className="border-l-2 border-primary bg-primary-soft/40 px-4 py-3 md:px-5">{text}</div>
-                  ) : (
-                    <Link href={`/replies/${r.id}`} className="block px-4 py-3 transition-colors hover:bg-neutral-soft md:px-5">
-                      {text}
-                    </Link>
-                  )}
-                </li>
-              );
-            })}
-          </ol>
-        </Card>
-      )}
-
-      {row.campaignId && (
-        <Card>
-          <CardHeader title="Reply to" />
-          <div className="space-y-1 px-4 py-3 text-sm md:px-5">
-            <p>
-              <span className="text-muted">Campaign: </span>
-              <Link href={`/campaigns/${row.campaignId}`} className="font-medium hover:underline">
-                {row.campaignName}
-              </Link>
-            </p>
-            <p className="break-words">
-              <span className="text-muted">Your email: </span>
-              {row.originalSubject} · <Time value={row.originalSentAt} />
-            </p>
-            {row.messageStatus && (
-              <p>
-                <span className="text-muted">Status: </span>
-                <StatusBadge status={row.messageStatus} />
-              </p>
-            )}
-          </div>
-        </Card>
-      )}
-
       {reply.bodyHtml && (
-        <details className="rounded-xl border bg-card">
+        <details className="rounded-2xl border bg-card shadow-card">
           <summary className="cursor-pointer px-4 py-3 text-sm font-medium md:px-5">Show the full email with formatting</summary>
           <iframe
             title="Full email"
             sandbox="allow-popups allow-popups-to-escape-sandbox"
-            className="h-[60vh] w-full rounded-b-xl border-t bg-white"
+            className="h-[60vh] w-full rounded-b-2xl border-t bg-white"
             srcDoc={emailPreviewDoc(cleanHtml(reply.bodyHtml), { openLinksInNewTab: true })}
           />
         </details>
       )}
+
+      {/* Actions: a bar above the tabs on phones (like a mail app's reply bar), a row on wider screens. */}
+      <div className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+64px)] z-30 border-t bg-card/95 px-4 py-2.5 backdrop-blur-md md:static md:rounded-2xl md:border md:bg-card md:px-5 md:py-3 md:shadow-card">
+        <div className="mx-auto flex max-w-3xl items-center gap-2">
+          <a href={mailto} className={buttonClass("primary", "sm", "flex-1 md:flex-none")}>
+            <Reply className="size-4" /> Reply
+          </a>
+          <Link href={`/recipients?email=${encodeURIComponent(reply.fromEmail)}`} className={buttonClass("secondary", "sm", "flex-1 md:flex-none")}>
+            <History className="size-4" /> History
+          </Link>
+          <form action={markReplyUnread.bind(null, reply.id)} className="flex-1 md:ml-auto md:flex-none">
+            <SubmitButton variant="ghost" size="sm" className="w-full" pendingText="Saving…">
+              <MailOpen className="size-4" /> Mark unread
+            </SubmitButton>
+          </form>
+        </div>
+        <p className="mx-auto mt-1.5 hidden max-w-3xl text-xs text-muted md:block">Reply opens your mail app, so the answer goes out from your own mailbox.</p>
+      </div>
     </div>
   );
 }
