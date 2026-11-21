@@ -89,7 +89,7 @@ async function receiveAll(timeoutMs = 30_000) {
 const [admin] = await q(`select id from users where email='admin@acme.test'`);
 await q(`delete from warmup_messages where user_id=$1`, [admin.id]);
 // Campaigns from earlier manual tests (sent from or to the warm-up test mailboxes) and the people they created.
-await q(`delete from campaigns where user_id=$1 and (name like 'e2e %' or name in ('guard test', 'partner test'))`, [admin.id]);
+await q(`delete from campaigns where user_id=$1 and (name like 'e2e %' or name in ('guard test', 'partner test', 'weekend test'))`, [admin.id]);
 await q(`delete from recipients r where r.user_id=$1 and r.email = any($2) and not exists (select 1 from messages m where m.recipient_id=r.id)`, [admin.id, [...SENDERS, PARTNER]]);
 await q(`update settings set window_start='09:00', window_end='17:00', timezone='America/New_York', weekdays_only=true where user_id=$1`, [admin.id]);
 await q(
@@ -272,7 +272,13 @@ check("campaign email to a partner address cancelled", pm?.status === "cancelled
 console.log("\n# Day 2");
 await q(`update warmup_messages set scheduled_at=scheduled_at-interval '1 day', sent_at=sent_at-interval '1 day', received_at=received_at-interval '1 day', rescued_at=rescued_at-interval '1 day' where user_id=$1`, [admin.id]);
 await q(`update senders set warmup_started_at=warmup_started_at-interval '1 day', warmup_planned_on=null where id = any($1)`, [Object.values(ids)]);
+// A mailbox planned part-way through its day only gets the rest of that day's share, so the full 4 only shows
+// right after midnight. Use a fixed-offset zone where it's just past midnight now, so this passes at any hour.
+const utcHour = new Date().getUTCHours();
+const nearMidnight = utcHour <= 12 ? `Etc/GMT+${utcHour}` : `Etc/GMT-${24 - utcHour}`;
+await q(`update settings set timezone=$2 where user_id=$1`, [admin.id, nearMidnight]);
 await cron("send");
+await q(`update settings set timezone='America/New_York' where user_id=$1`, [admin.id]);
 const day2 = await q(`select s.email from_, t.email to_ from warmup_messages w join senders s on s.id=w.sender_id join senders t on t.id=w.to_sender_id where w.user_id=$1 and w.status='scheduled' and w.parent_id is null`, [admin.id]);
 for (const s of SENDERS) check(`${s} planned 4 new emails on day 2`, day2.filter((p) => p.from_ === s).length === 4, `${day2.filter((p) => p.from_ === s).length}`);
 check("partner still gets at most 3, one from each sender", day2.filter((p) => p.to_ === PARTNER).length === 3 && SENDERS.every((s) => day2.filter((p) => p.from_ === s && p.to_ === PARTNER).length === 1));

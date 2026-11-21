@@ -39,7 +39,12 @@ export function SettingsForm({ initial, zones, logo }: { initial: Values; zones:
               <Input id="windowEnd" name="windowEnd" type="time" defaultValue={initial.windowEnd} required />
             </Field>
             <div className="col-span-2 flex items-end pb-1 sm:col-span-1">
-              <Checkbox name="weekdaysOnly" label="Weekdays only" defaultChecked={initial.weekdaysOnly} />
+              <Checkbox
+                name="weekdaysOnly"
+                label="Weekdays only"
+                defaultChecked={initial.weekdaysOnly}
+                description="Untick to also send on Saturday and Sunday (warm-up and new campaigns)."
+              />
             </div>
           </div>
         </div>

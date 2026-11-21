@@ -18,6 +18,7 @@ import { SendTimeEditor } from "@/components/send-time-editor";
 import { estimateCampaignQueue, estimateTime, type QueueEstimate } from "@/lib/queue-eta";
 import { clampPage, pageInfo, readPage } from "@/lib/pagination";
 import { FlashToast } from "@/components/toast";
+import { CampaignWindowForm } from "./window-form";
 
 export const metadata: Metadata = { title: "Campaign" };
 
@@ -203,6 +204,7 @@ export default async function CampaignPage({
         <Alert tone="info">
           Outside the send window right now ({campaign.windowStart}–{campaign.windowEnd} {timezoneName(tz)} time
           {campaign.weekdaysOnly ? ", weekdays" : ""}). Sending resumes when it opens{hasSetTimes ? "; emails with a set time still go out at that time" : ""}.
+          {campaign.weekdaysOnly ? " To send on weekends too, use “Change send days and hours” under Schedule." : ""}
         </Alert>
       )}
       {mailboxes.length > 0 && mailboxes.every((m) => m.status !== "active") && open && (
@@ -275,12 +277,21 @@ export default async function CampaignPage({
             ...(open && lastEta && lastEta !== nextEta ? [{ label: "Last email, around", value: <Time value={estimateTime(lastEta)} timeZone={tz} /> }] : []),
             {
               label: "Send window",
-              value: `${campaign.windowStart}–${campaign.windowEnd} ${timezoneName(tz)}${campaign.weekdaysOnly ? " · weekdays" : ""}`,
+              value: `${campaign.windowStart}–${campaign.windowEnd} ${timezoneName(tz)}${campaign.weekdaysOnly ? " · weekdays" : " · every day"}`,
             },
             { label: "From", value: mailboxes.map((m) => m.email).join(", ") || "—", wide: mailboxes.length > 1 },
             { label: "Started", value: <Time value={campaign.createdAt} timeZone={tz} /> },
           ]}
         />
+        {open && (
+          <CampaignWindowForm
+            id={campaign.id}
+            windowStart={campaign.windowStart}
+            windowEnd={campaign.windowEnd}
+            weekdaysOnly={campaign.weekdaysOnly}
+            timeZoneName={timezoneName(tz)}
+          />
+        )}
       </Card>
 
       <Card>
