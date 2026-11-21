@@ -7,7 +7,7 @@ export const WARMUP_LIMITS = {
   increase: { min: 0, max: 20 },
   max: { min: 1, max: 200 },
   replyRate: { min: 0, max: 100 },
-  receiveMax: { min: 1, max: 10 },
+  receiveMax: { min: 1, max: 50 }, // raised from 10 on Nov 21 at the user's request
 } as const;
 
 /** Gmail and Google Workspace mailboxes: their spam folder is the inbox-placement signal that matters most. */

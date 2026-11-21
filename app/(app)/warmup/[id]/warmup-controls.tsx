@@ -89,7 +89,7 @@ export function WarmupSettingsForm({ id, values }: { id: string; values: Values 
             label="Most warm-up emails it gets a day"
             htmlFor="warmupReceiveMax"
             error={err.warmupReceiveMax}
-            hint="Shared out among your business mailboxes. Keep it low so the account looks like a person's."
+            hint="Shared out among your business mailboxes, 1 to 50. Start low (3 to 10) and raise it slowly, so the account still looks like a person's."
           >
             {number("warmupReceiveMax", WARMUP_LIMITS.receiveMax)}
           </Field>

@@ -154,7 +154,7 @@ Warm-up only between mailboxes on one provider (for example all on Hostinger) ne
 
 - **Set up each Gmail account** (in the Google account, not in ColdMailer): turn on **2-Step Verification**; create an **App password** at `myaccount.google.com/apppasswords`; in Gmail → Settings → *Forwarding and POP/IMAP*, make sure **IMAP** is on.
 - **Add it:** Mailboxes → Add mailbox → **Gmail**, with the Gmail address and the 16-character app password. Then on its page → Warm-up → *Takes part as* → **Partner (only receives and replies)** → Save, and **Turn on warm-up**.
-- **Low volume:** a partner gets at most 3 new warm-up emails a day (changeable, 1–10), shared fairly among your business mailboxes, so each business mailbox lands in Gmail every day and the Gmail account still looks like a person's.
+- **Low volume:** a partner gets at most 3 new warm-up emails a day (changeable, 1–50; raise it slowly), shared fairly among your business mailboxes, so each business mailbox lands in Gmail every day and the Gmail account still looks like a person's.
 - **Partners never start threads and never send campaigns:** they aren't offered as campaign senders, and a campaign email to one of your partner addresses is cancelled. A mailbox a campaign already uses can't become a partner.
 - **Status:** each business mailbox's page shows **In Gmail spam, 7 days** (how many of its emails Gmail put in spam, and how many were moved back), apart from spam at your other mailboxes. That Gmail figure is the real inbox-placement signal. A partner's page shows what it received, its replies and what it moved out of its spam.
 - Only add accounts ColdMailer can sign in to. Warm-up never sends to an address it can't read and reply from.
