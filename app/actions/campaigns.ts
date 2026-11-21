@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { requireSession } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { campaigns, messages } from "@/lib/db/schema";
+import { isValidHm } from "@/lib/time-window";
 
 function refresh(id: string) {
   revalidatePath("/campaigns");
@@ -20,6 +21,32 @@ export async function setCampaignStatus(id: string, status: "active" | "paused")
     .set({ status })
     .where(and(eq(campaigns.id, id), eq(campaigns.userId, me.id), inArray(campaigns.status, ["active", "paused"])));
   refresh(id);
+}
+
+export type WindowFormState = { error?: string; message?: string };
+
+/**
+ * Change a running or paused campaign's send window: the hours, and whether it also sends on Saturday and
+ * Sunday. The send job checks the window on every run, so it applies from the next minute.
+ */
+export async function setCampaignWindow(id: string, _prev: WindowFormState, formData: FormData): Promise<WindowFormState> {
+  const me = await requireSession();
+  const windowStart = String(formData.get("windowStart") ?? "");
+  const windowEnd = String(formData.get("windowEnd") ?? "");
+  if (!isValidHm(windowStart) || !isValidHm(windowEnd)) return { error: "Use a time like 09:00 for the start and the end." };
+  const weekdaysOnly = formData.get("weekdaysOnly") === "on";
+  const updated = await db
+    .update(campaigns)
+    .set({ windowStart, windowEnd, weekdaysOnly })
+    .where(and(eq(campaigns.id, id), eq(campaigns.userId, me.id), inArray(campaigns.status, ["active", "paused"])))
+    .returning({ id: campaigns.id });
+  if (!updated.length) return { error: "Only a running or paused campaign's send window can be changed." };
+  refresh(id);
+  return {
+    message: weekdaysOnly
+      ? `Saved. It sends ${windowStart}–${windowEnd}, Monday to Friday.`
+      : `Saved. It sends ${windowStart}–${windowEnd} every day, weekends included.`,
+  };
 }
 
 export async function cancelCampaign(id: string) {

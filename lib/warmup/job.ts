@@ -456,3 +456,27 @@ export async function cancelPendingWarmup(senderId: string) {
     .set({ status: "cancelled", error: "Warm-up was turned off for this mailbox.", updatedAt: new Date() })
     .where(and(eq(warmupMessages.senderId, senderId), eq(warmupMessages.status, "scheduled")));
 }
+
+/**
+ * The account's send window changed (hours, days or timezone). Plan today again under the new window, so turning
+ * on weekends on a Saturday starts warm-up that day rather than the next, and bring forward the emails that were
+ * only waiting for the old window to open. Planning again is safe: it only adds what today's number still lacks.
+ */
+export async function replanWarmupForWindow(userId: string, settings: Settings, now = new Date()) {
+  await db.update(senders).set({ warmupPlannedOn: null }).where(eq(senders.userId, userId));
+  const opens = nextWindowOpen(now, settings).getTime();
+  // Longer than any reply delay (partners wait up to 5 hours), so replies timed normally are left alone.
+  const pushedBy = opens + 5 * 3_600_000;
+  const waiting = await db
+    .select({ id: warmupMessages.id, scheduledAt: warmupMessages.scheduledAt })
+    .from(warmupMessages)
+    .where(and(eq(warmupMessages.userId, userId), eq(warmupMessages.status, "scheduled")));
+  for (const row of waiting) {
+    const at = row.scheduledAt.getTime();
+    if (at <= now.getTime() || (at <= pushedBy && isInsideWindow(row.scheduledAt, settings))) continue;
+    await db
+      .update(warmupMessages)
+      .set({ scheduledAt: new Date(opens + randomBetween(5, 90) * 60_000), updatedAt: now })
+      .where(and(eq(warmupMessages.id, row.id), eq(warmupMessages.status, "scheduled")));
+  }
+}

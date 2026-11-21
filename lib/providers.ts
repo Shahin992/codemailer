@@ -38,7 +38,8 @@ export const PROVIDER_PRESETS: Record<Provider, ProviderPreset> = {
     imapPort: 993,
     imapSecurity: "ssl",
     saveToSent: false,
-    dailyLimit: 10,
+    // The user's choice (Nov 21): Gmail mailboxes, mostly warm-up partners, start at 50 a day. Gmail itself allows ~500.
+    dailyLimit: 50,
     passwordLabel: "App password",
     help: "Turn on 2-Step Verification, then create a 16-character app password at myaccount.google.com/apppasswords. Your normal Gmail password will not work.",
   },
